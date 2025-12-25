@@ -78,7 +78,6 @@ class MarynoNetApiClient:
         return None
 
     async def authenticate(self) -> None:
-    async def authenticate(self) -> None:
         """Authenticate with Maryno.net."""
         if not self.session:
             await self._create_session()
