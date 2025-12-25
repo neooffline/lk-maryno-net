@@ -98,7 +98,7 @@ class MarynoNetApiClient:
             test_url = f"{self.base_url}/api/user/contract"
             test_headers = self._get_browser_headers()
             async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
+                if response.status in [200, 304]:
                     _LOGGER.info("Successfully authenticated with maryno.net at %s", self.base_url)
                     self._authenticated = True
                     return
@@ -167,15 +167,15 @@ class MarynoNetApiClient:
             ) as response:
                 _LOGGER.debug("Auth response status: %s", response.status)
                 response_text = await response.text()
-                _LOGGER.debug("Auth response body: %s", response_text)
+                _LOGGER.info("Auth response body: %s", response_text)
 
-                if response.status not in [200, 302]:
+                if response.status not in [200, 304]:
                     raise Exception(f"Authentication failed: {response.status} - {response_text}")
 
                 # Check if we got session cookies
                 cookies = list(self.session.cookie_jar)
                 if cookies:
-                    _LOGGER.debug("All session cookies after auth: %s", [(cookie.key, cookie.value[:30] + "..." if len(cookie.value) > 30 else cookie.value) for cookie in cookies])
+                    _LOGGER.info("All session cookies after auth: %s", [(cookie.key, cookie.value[:30] + "..." if len(cookie.value) > 30 else cookie.value) for cookie in cookies])
 
                     # Look for expected cookies like connect.sid, XSRF-TOKEN
                     has_session = any(cookie.key in ['connect.sid', 'session', 'sessionid'] for cookie in cookies)
@@ -200,7 +200,7 @@ class MarynoNetApiClient:
                     test_response_text = await test_response.text()
                     _LOGGER.debug("API test response body: %s", test_response_text[:500])
 
-                    if test_response.status == 200:
+                    if test_response.status in [200, 304]:
                         self._authenticated = True
                         _LOGGER.info("Successfully authenticated with maryno.net at %s", self.base_url)
                         return
