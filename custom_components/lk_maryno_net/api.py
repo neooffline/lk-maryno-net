@@ -207,6 +207,9 @@ class MarynoNetApiClient:
                 if not self._check_session_expiration():
                     raise Exception("Session has expired, please re-authenticate")
 
+                # Prepare headers to match browser requests
+                headers = self._get_browser_headers()
+
                 # Step 1: Access contract page first (as discovered by user)
                 _LOGGER.info("Step 1: Accessing contract page to establish session...")
                 contract_page_url = f"{self.base_url}/contract"
@@ -216,9 +219,9 @@ class MarynoNetApiClient:
                     self._update_xsrf_token_from_headers(contract_response.headers)
                     
                     if contract_response.status in [200, 304]:
-                        _LOGGER.debug("Contract page access successful")
+                        _LOGGER.info("Contract page access successful")
                     else:
-                        _LOGGER.warning("Contract page access failed: %s", contract_response.status)
+                        _LOGGER.info("Contract page access failed: %s", contract_response.status)
 
                 # Small delay
                 await asyncio.sleep(0.5)
@@ -232,9 +235,9 @@ class MarynoNetApiClient:
                     self._update_xsrf_token_from_headers(main_response.headers)
                     
                     if main_response.status in [200, 304]:
-                        _LOGGER.debug("Main page access successful")
+                        _LOGGER.info("Main page access successful")
                     else:
-                        _LOGGER.warning("Main page access failed: %s", main_response.status)
+                        _LOGGER.info("Main page access failed: %s", main_response.status)
 
                 # Small delay
                 await asyncio.sleep(0.5)
@@ -247,9 +250,9 @@ class MarynoNetApiClient:
                     self._update_xsrf_token_from_headers(contract_response2.headers)
                     
                     if contract_response2.status in [200, 304]:
-                        _LOGGER.debug("Contract page (second) access successful")
+                        _LOGGER.info("Contract page (second) access successful")
                     else:
-                        _LOGGER.warning("Contract page (second) access failed: %s", contract_response2.status)
+                        _LOGGER.info("Contract page (second) access failed: %s", contract_response2.status)
 
                 # Small delay
                 await asyncio.sleep(0.5)
@@ -258,7 +261,7 @@ class MarynoNetApiClient:
                 test_url = f"{self.base_url}/api/user/contract"
                 test_headers = self._get_browser_headers()
                 _LOGGER.info("Testing API access with URL: %s", test_url)
-                _LOGGER.debug("Testing API access with headers: %s", test_headers)
+                _LOGGER.info("Testing API access with headers: %s", test_headers)
                 async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
                     _LOGGER.info("API test response status: %s", test_response.status)
                     _LOGGER.info("API test response headers: %s", dict(test_response.headers))                    
