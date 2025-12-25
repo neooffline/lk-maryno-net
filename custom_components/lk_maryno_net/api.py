@@ -5,6 +5,7 @@ import ssl
 from typing import Any, Dict, Optional
 
 import aiohttp
+from yarl import URL
 
 from .const import ACCOUNT_URL, BASE_URL, AUTH_URL, POSSIBLE_BASE_URLS
 
@@ -196,7 +197,10 @@ class MarynoNetApiClient:
                 _LOGGER.debug("Testing API access with headers: %s", test_headers)
                 async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
                     _LOGGER.info("API test response status: %s", test_response.status)
-                    _LOGGER.info("API test response headers: %s", dict(test_response.headers))
+                    _LOGGER.info("API test response headers: %s", dict(test_response.headers))                    
+                    # Update XSRF token from response headers
+                    self._update_xsrf_token_from_headers(test_response.headers)
+                    
                     test_response_text = await test_response.text()
                     _LOGGER.info("API test response body: %s", test_response_text[:500])
 
@@ -232,6 +236,9 @@ class MarynoNetApiClient:
             async with self.session.get(user_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 _LOGGER.debug("User response status: %s", response.status)
                 _LOGGER.debug("Response headers: %s", dict(response.headers))
+
+                # Update XSRF token from response headers
+                self._update_xsrf_token_from_headers(response.headers)
 
                 if response.status not in [200, 304]:
                     response_text = await response.text()
@@ -321,3 +328,28 @@ class MarynoNetApiClient:
                 _LOGGER.info("Found XSRF token (raw): %s, decoded: %s", cookie.value, decoded_token)
                 return decoded_token
         return None
+    def _update_xsrf_token_from_headers(self, headers) -> None:
+        """Update XSRF token from response headers."""
+        import urllib.parse
+        
+        set_cookie = headers.get('Set-Cookie', '')
+        if 'XSRF-TOKEN=' in set_cookie:
+            # Extract token from Set-Cookie header
+            cookie_parts = set_cookie.split(';')
+            for part in cookie_parts:
+                if part.strip().startswith('XSRF-TOKEN='):
+                    token_value = part.strip().split('=', 1)[1]
+                    decoded_token = urllib.parse.unquote(token_value)
+                    
+                    # Update the cookie in the session jar
+                    for cookie in self.session.cookie_jar:
+                        if cookie.key == 'XSRF-TOKEN':
+                            cookie.value = token_value
+                            _LOGGER.info("Updated XSRF token from headers: %s", decoded_token)
+                            return
+                    
+                    # If token not found in jar, add it
+                    base_url = URL(self.base_url)
+                    self.session.cookie_jar.update_cookies({'XSRF-TOKEN': token_value}, base_url)
+                    _LOGGER.info("Added new XSRF token from headers: %s", decoded_token)
+                    break
