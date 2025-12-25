@@ -173,6 +173,22 @@ class MarynoNetApiClient:
                 if response.status not in [200, 304]:
                     raise Exception(f"Authentication failed: {response.status} - {response_text}")
 
+                # Parse auth response for expiration and session info
+                try:
+                    import json
+                    auth_data = json.loads(response_text)
+                    _LOGGER.debug("Auth response JSON: %s", auth_data)
+                    
+                    # Check for expiration date in auth response
+                    if isinstance(auth_data, dict) and 'expiration' in auth_data:
+                        self._session_expiration = auth_data['expiration']
+                        _LOGGER.info("Session expiration: %s", self._session_expiration)
+                    elif isinstance(auth_data, dict) and 'expires' in auth_data:
+                        self._session_expiration = auth_data['expires']
+                        _LOGGER.info("Session expires: %s", self._session_expiration)
+                except Exception as json_ex:
+                    _LOGGER.debug("Could not parse auth response as JSON: %s", json_ex)
+
                 # Check if we got session cookies
                 cookies = list(self.session.cookie_jar)
                 if cookies:
@@ -187,23 +203,55 @@ class MarynoNetApiClient:
                     if has_xsrf:
                         _LOGGER.info("XSRF token found")
 
-                # Small delay to ensure session is fully established
+                # Check session expiration before proceeding
+                if not self._check_session_expiration():
+                    raise Exception("Session has expired, please re-authenticate")
+
+                # Step 1: Access contract page first (as discovered by user)
+                _LOGGER.debug("Step 1: Accessing contract page to establish session...")
+                contract_page_url = f"{self.base_url}/contract"
+                async with self.session.get(contract_page_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as contract_response:
+                    _LOGGER.debug("Contract page response status: %s", contract_response.status)
+                    # Update XSRF token from contract page response
+                    self._update_xsrf_token_from_headers(contract_response.headers)
+                    
+                    if contract_response.status in [200, 304]:
+                        _LOGGER.debug("Contract page access successful")
+                    else:
+                        _LOGGER.warning("Contract page access failed: %s", contract_response.status)
+
+                # Small delay
                 await asyncio.sleep(0.5)
 
-                # Try to access the main page first to establish session (like standalone script)
-                _LOGGER.debug("Accessing main page to establish session...")
+                # Step 2: Access main page (as per user discovery)
+                _LOGGER.debug("Step 2: Accessing main page...")
                 main_url = f"{self.base_url}/"
                 async with self.session.get(main_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as main_response:
                     _LOGGER.debug("Main page response status: %s", main_response.status)
                     # Update XSRF token from main page response
                     self._update_xsrf_token_from_headers(main_response.headers)
                     
-                    if main_response.status == 200:
+                    if main_response.status in [200, 304]:
                         _LOGGER.debug("Main page access successful")
                     else:
-                        _LOGGER.debug("Main page access failed: %s", main_response.status)
+                        _LOGGER.warning("Main page access failed: %s", main_response.status)
 
-                # Small additional delay
+                # Small delay
+                await asyncio.sleep(0.5)
+
+                # Step 3: Access contract page again before API calls (as per user discovery)
+                _LOGGER.debug("Step 3: Accessing contract page again...")
+                async with self.session.get(contract_page_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as contract_response2:
+                    _LOGGER.debug("Contract page (second) response status: %s", contract_response2.status)
+                    # Update XSRF token from second contract page response
+                    self._update_xsrf_token_from_headers(contract_response2.headers)
+                    
+                    if contract_response2.status in [200, 304]:
+                        _LOGGER.debug("Contract page (second) access successful")
+                    else:
+                        _LOGGER.warning("Contract page (second) access failed: %s", contract_response2.status)
+
+                # Small delay
                 await asyncio.sleep(0.5)
 
                 # Verify authentication by trying to access user data with proper headers
@@ -240,17 +288,44 @@ class MarynoNetApiClient:
         if not self.session:
             raise Exception("Session not initialized")
 
+        # Check session expiration before proceeding
+        if not self._check_session_expiration():
+            _LOGGER.info("Session expired, re-authenticating")
+            self._authenticated = False
+            await self.authenticate()
+
         # Prepare headers to match browser requests
         headers = self._get_browser_headers()
 
         try:
-            # Access main page first to ensure session is fully established (like standalone script)
+            # Step 1: Access contract page first (as per user discovery)
+            _LOGGER.debug("Accessing contract page before API call...")
+            contract_page_url = f"{self.base_url}/contract"
+            async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response:
+                _LOGGER.debug("Contract page response status: %s", contract_response.status)
+                # Update XSRF token from contract page response
+                self._update_xsrf_token_from_headers(contract_response.headers)
+
+            # Small delay
+            await asyncio.sleep(0.5)
+
+            # Step 2: Access main page (as per user discovery)
             _LOGGER.debug("Accessing main page before API call...")
             main_url = f"{self.base_url}/"
             async with self.session.get(main_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as main_response:
                 _LOGGER.debug("Main page response status: %s", main_response.status)
                 # Update XSRF token from main page response
                 self._update_xsrf_token_from_headers(main_response.headers)
+
+            # Small delay
+            await asyncio.sleep(0.5)
+
+            # Step 3: Access contract page again before API calls (as per user discovery)
+            _LOGGER.debug("Accessing contract page again before API call...")
+            async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response2:
+                _LOGGER.debug("Contract page (second) response status: %s", contract_response2.status)
+                # Update XSRF token from second contract page response
+                self._update_xsrf_token_from_headers(contract_response2.headers)
 
             # Small delay
             await asyncio.sleep(0.5)
@@ -355,7 +430,40 @@ class MarynoNetApiClient:
                 _LOGGER.info("Found XSRF token (raw): %s, decoded: %s", cookie.value, decoded_token)
                 return decoded_token
         return None
-    def _update_xsrf_token_from_headers(self, headers) -> None:
+    def _check_session_expiration(self) -> bool:
+        """Check if the current session is still valid based on expiration."""
+        if not hasattr(self, '_session_expiration') or not self._session_expiration:
+            return True  # No expiration info, assume valid
+        
+        try:
+            import time
+            current_time = int(time.time() * 1000)  # Current time in milliseconds
+            
+            # If expiration is a string, try to parse it
+            if isinstance(self._session_expiration, str):
+                # Try different date formats
+                try:
+                    # ISO format
+                    import datetime
+                    expiration_dt = datetime.datetime.fromisoformat(self._session_expiration.replace('Z', '+00:00'))
+                    expiration_time = int(expiration_dt.timestamp() * 1000)
+                except:
+                    # Try as timestamp
+                    expiration_time = int(self._session_expiration)
+            else:
+                expiration_time = int(self._session_expiration)
+            
+            if current_time < expiration_time:
+                _LOGGER.debug("Session is still valid until: %s", self._session_expiration)
+                return True
+            else:
+                _LOGGER.warning("Session has expired: %s", self._session_expiration)
+                self._authenticated = False
+                return False
+                
+        except Exception as ex:
+            _LOGGER.debug("Could not check session expiration: %s", ex)
+            return True  # Assume valid if we can't check
         """Update XSRF token from response headers."""
         import urllib.parse
         
