@@ -92,7 +92,8 @@ class MarynoNetApiClient:
 
             # Try to access user data directly (may not require authentication)
             test_url = f"{self.base_url}/api/user/all"
-            async with self.session.get(test_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            test_headers = self._get_browser_headers()
+            async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status == 200:
                     _LOGGER.info("Successfully authenticated with Maryno.net at %s", self.base_url)
                     self._authenticated = True
@@ -128,10 +129,30 @@ class MarynoNetApiClient:
             "password": self.password,
         }
 
+        # Use browser-like headers for authentication
+        auth_headers = {
+            "accept": "application/json, text/plain, */*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "ru,en-US;q=0.9,en;q=0.8,bg;q=0.7",
+            "content-type": "application/json",
+            "dnt": "1",
+            "origin": "https://lk.marino.net",
+            "priority": "u=1, i",
+            "referer": "https://lk.marino.net/login",
+            "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+        }
+
         try:
             async with self.session.post(
                 AUTH_URL,
                 json=login_data,
+                headers=auth_headers,
                 timeout=aiohttp.ClientTimeout(total=30),
                 allow_redirects=True
             ) as response:
@@ -156,9 +177,10 @@ class MarynoNetApiClient:
                     if has_xsrf:
                         _LOGGER.debug("XSRF token found")
 
-                # Verify authentication by trying to access user data
+                # Verify authentication by trying to access user data with proper headers
                 test_url = f"{self.base_url}/api/user/all"
-                async with self.session.get(test_url, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
+                test_headers = self._get_browser_headers()
+                async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
                     if test_response.status == 200:
                         self._authenticated = True
                         _LOGGER.info("Successfully authenticated with Maryno.net at %s", self.base_url)
@@ -180,20 +202,18 @@ class MarynoNetApiClient:
         if not self.session:
             raise Exception("Session not initialized")
 
-        # Prepare headers with CSRF token if available
-        headers = {}
-        xsrf_token = self._get_xsrf_token()
-        if xsrf_token:
-            headers['X-XSRF-TOKEN'] = xsrf_token
-            _LOGGER.debug("Using XSRF token for API requests")
+        # Prepare headers to match browser requests
+        headers = self._get_browser_headers()
 
         try:
             # Get user info (balance, customer number, etc.)
             user_url = f"{self.base_url}/api/user/all"
             _LOGGER.debug("Fetching user info from: %s", user_url)
+            _LOGGER.debug("Using headers: %s", headers)
 
             async with self.session.get(user_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 _LOGGER.debug("User info response status: %s", response.status)
+                _LOGGER.debug("Response headers: %s", dict(response.headers))
 
                 if response.status != 200:
                     response_text = await response.text()
@@ -248,6 +268,32 @@ class MarynoNetApiClient:
         except Exception as ex:
             _LOGGER.error("Failed to get account info: %s", ex)
             raise
+
+    def _get_browser_headers(self) -> Dict[str, str]:
+        """Get browser-like headers to match web requests."""
+        headers = {
+            "accept": "application/json, text/plain, */*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "ru,en-US;q=0.9,en;q=0.8,bg;q=0.7",
+            "dnt": "1",
+            "priority": "u=1, i",
+            "referer": f"{self.base_url}/info",
+            "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+        }
+
+        # Add XSRF token if available
+        xsrf_token = self._get_xsrf_token()
+        if xsrf_token:
+            headers['x-xsrf-token'] = xsrf_token
+            _LOGGER.debug("Using XSRF token: %s", xsrf_token)
+
+        return headers
 
     def _get_xsrf_token(self) -> Optional[str]:
         """Extract XSRF token from cookies."""
