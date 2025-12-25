@@ -294,6 +294,22 @@ class MarynoNetApiClient:
             except Exception as ex:
                 _LOGGER.debug("Failed to get balance info: %s", ex)
 
+            # Get bonus info (keep existing logic)
+            bonus_url = f"{self.base_url}/api/gbonus/info"
+            _LOGGER.debug("Fetching bonus info from: %s", bonus_url)
+
+            bonus_balance = 0
+            try:
+                async with self.session.get(bonus_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as bonus_response:
+                    _LOGGER.debug("Bonus response status: %s", bonus_response.status)
+
+                    if bonus_response.status == 200:
+                        bonus_data = await bonus_response.json()
+                        _LOGGER.debug("Bonus data received: %s", bonus_data)
+                        bonus_balance = bonus_data.get("n_bonus", 0)
+            except Exception as ex:
+                _LOGGER.debug("Failed to get bonus info: %s", ex)
+
             # Extract the required information from contract_data
             return {
                 "balance": float(balance),
