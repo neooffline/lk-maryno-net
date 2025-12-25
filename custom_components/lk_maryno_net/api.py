@@ -305,8 +305,8 @@ class MarynoNetApiClient:
         # Add XSRF token if available
         xsrf_token = self._get_xsrf_token()
         if xsrf_token:
-            headers['x-xsrf-token'] = xsrf_token
-            _LOGGER.debug("Using XSRF token: %s", xsrf_token)
+            headers['X-Xsrf-Token'] = xsrf_token
+            _LOGGER.info("Using XSRF token: %s", xsrf_token)
 
         return headers
 
@@ -318,6 +318,6 @@ class MarynoNetApiClient:
             if cookie.key == 'XSRF-TOKEN':
                 # URL decode the token as it might be encoded in the cookie
                 decoded_token = urllib.parse.unquote(cookie.value)
-                _LOGGER.debug("Found XSRF token (raw): %s, decoded: %s", cookie.value, decoded_token)
+                _LOGGER.info("Found XSRF token (raw): %s, decoded: %s", cookie.value, decoded_token)
                 return decoded_token
         return None
