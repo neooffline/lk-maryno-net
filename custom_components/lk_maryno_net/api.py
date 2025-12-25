@@ -131,7 +131,7 @@ class MarynoNetApiClient:
 
     async def _perform_login(self) -> None:
         """Perform login to obtain session cookies."""
-        _LOGGER.debug("Attempting authentication with URL: %s", AUTH_URL)
+        _LOGGER.info("Attempting authentication with URL: %s", AUTH_URL)
 
         # Send login data as JSON
         login_data = {
@@ -166,7 +166,7 @@ class MarynoNetApiClient:
                 timeout=aiohttp.ClientTimeout(total=30),
                 allow_redirects=True
             ) as response:
-                _LOGGER.debug("Auth response status: %s", response.status)
+                _LOGGER.info("Auth response status: %s", response.status)
                 response_text = await response.text()
                 _LOGGER.info("Auth response body: %s", response_text)
 
@@ -208,10 +208,10 @@ class MarynoNetApiClient:
                     raise Exception("Session has expired, please re-authenticate")
 
                 # Step 1: Access contract page first (as discovered by user)
-                _LOGGER.debug("Step 1: Accessing contract page to establish session...")
+                _LOGGER.info("Step 1: Accessing contract page to establish session...")
                 contract_page_url = f"{self.base_url}/contract"
-                async with self.session.get(contract_page_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as contract_response:
-                    _LOGGER.debug("Contract page response status: %s", contract_response.status)
+                async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response:
+                    _LOGGER.info("Contract page response status: %s", contract_response.status)
                     # Update XSRF token from contract page response
                     self._update_xsrf_token_from_headers(contract_response.headers)
                     
@@ -224,10 +224,10 @@ class MarynoNetApiClient:
                 await asyncio.sleep(0.5)
 
                 # Step 2: Access main page (as per user discovery)
-                _LOGGER.debug("Step 2: Accessing main page...")
+                _LOGGER.info("Step 2: Accessing main page...")
                 main_url = f"{self.base_url}/"
-                async with self.session.get(main_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as main_response:
-                    _LOGGER.debug("Main page response status: %s", main_response.status)
+                async with self.session.get(main_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as main_response:
+                    _LOGGER.info("Main page response status: %s", main_response.status)
                     # Update XSRF token from main page response
                     self._update_xsrf_token_from_headers(main_response.headers)
                     
@@ -240,9 +240,9 @@ class MarynoNetApiClient:
                 await asyncio.sleep(0.5)
 
                 # Step 3: Access contract page again before API calls (as per user discovery)
-                _LOGGER.debug("Step 3: Accessing contract page again...")
-                async with self.session.get(contract_page_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as contract_response2:
-                    _LOGGER.debug("Contract page (second) response status: %s", contract_response2.status)
+                _LOGGER.info("Step 3: Accessing contract page again...")
+                async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response2:
+                    _LOGGER.info("Contract page (second) response status: %s", contract_response2.status)
                     # Update XSRF token from second contract page response
                     self._update_xsrf_token_from_headers(contract_response2.headers)
                     
@@ -257,7 +257,7 @@ class MarynoNetApiClient:
                 # Verify authentication by trying to access user data with proper headers
                 test_url = f"{self.base_url}/api/user/contract"
                 test_headers = self._get_browser_headers()
-                _LOGGER.debug("Testing API access with URL: %s", test_url)
+                _LOGGER.info("Testing API access with URL: %s", test_url)
                 _LOGGER.debug("Testing API access with headers: %s", test_headers)
                 async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
                     _LOGGER.info("API test response status: %s", test_response.status)
@@ -299,7 +299,7 @@ class MarynoNetApiClient:
 
         try:
             # Step 1: Access contract page first (as per user discovery)
-            _LOGGER.debug("Accessing contract page before API call...")
+            _LOGGER.info("Accessing contract page before API call...")
             contract_page_url = f"{self.base_url}/contract"
             async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response:
                 _LOGGER.info("Contract page response status: %s", contract_response.status)
@@ -308,13 +308,13 @@ class MarynoNetApiClient:
                 self._update_xsrf_token_from_headers(contract_response.headers)
                 
                 if contract_response.status not in [200, 304]:
-                    _LOGGER.warning("Contract page access failed with status: %s", contract_response.status)
+                    _LOGGER.info("Contract page access failed with status: %s", contract_response.status)
 
             # Small delay
             await asyncio.sleep(0.5)
 
             # Step 2: Access main page (as per user discovery)
-            _LOGGER.debug("Accessing main page before API call...")
+            _LOGGER.info("Accessing main page before API call...")
             main_url = f"{self.base_url}/"
             async with self.session.get(main_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as main_response:
                 _LOGGER.info("Main page response status: %s", main_response.status)
@@ -323,13 +323,13 @@ class MarynoNetApiClient:
                 self._update_xsrf_token_from_headers(main_response.headers)
                 
                 if main_response.status not in [200, 304]:
-                    _LOGGER.warning("Main page access failed with status: %s", main_response.status)
+                    _LOGGER.info("Main page access failed with status: %s", main_response.status)
 
             # Small delay
             await asyncio.sleep(0.5)
 
             # Step 3: Access contract page again before API calls (as per user discovery)
-            _LOGGER.debug("Accessing contract page again before API call...")
+            _LOGGER.info("Accessing contract page again before API call...")
             async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response2:
                 _LOGGER.info("Contract page (second) response status: %s", contract_response2.status)
                 _LOGGER.debug("Contract page (second) response headers: %s", dict(contract_response2.headers))
@@ -337,10 +337,10 @@ class MarynoNetApiClient:
                 self._update_xsrf_token_from_headers(contract_response2.headers)
                 
                 if contract_response2.status not in [200, 304]:
-                    _LOGGER.warning("Contract page (second) access failed with status: %s", contract_response2.status)
+                    _LOGGER.info("Contract page (second) access failed with status: %s", contract_response2.status)
 
             # Step 4: Access dashboard/main page to establish full session
-            _LOGGER.debug("Accessing dashboard page before API call...")
+            _LOGGER.info("Accessing dashboard page before API call...")
             dashboard_url = f"{self.base_url}/dashboard"
             async with self.session.get(dashboard_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as dashboard_response:
                 _LOGGER.info("Dashboard page response status: %s", dashboard_response.status)
@@ -349,16 +349,16 @@ class MarynoNetApiClient:
                 self._update_xsrf_token_from_headers(dashboard_response.headers)
                 
                 if dashboard_response.status not in [200, 304]:
-                    _LOGGER.warning("Dashboard page access failed with status: %s", dashboard_response.status)
+                    _LOGGER.info("Dashboard page access failed with status: %s", dashboard_response.status)
 
             # Small delay
             await asyncio.sleep(0.5)
 
             # First get contract info to establish session
             contract_api_url = f"{self.base_url}/api/user/contract"
-            _LOGGER.debug("Fetching contract info from: %s", contract_api_url)
+            _LOGGER.info("Fetching contract info from: %s", contract_api_url)
             async with self.session.get(contract_api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as contract_api_response:
-                _LOGGER.debug("Contract API response status: %s", contract_api_response.status)
+                _LOGGER.info("Contract API response status: %s", contract_api_response.status)
                 _LOGGER.debug("Contract API response headers: %s", dict(contract_api_response.headers))
                 
                 # Update XSRF token from contract API response
@@ -366,7 +366,7 @@ class MarynoNetApiClient:
                 
                 if contract_api_response.status not in [200, 304]:
                     contract_response_text = await contract_api_response.text()
-                    _LOGGER.warning("Contract API response: %s", contract_response_text)
+                    _LOGGER.info("Contract API response: %s", contract_response_text)
                     # Don't fail here, just log warning - some systems might not require this
 
             # Small delay
@@ -374,11 +374,11 @@ class MarynoNetApiClient:
 
             # Get user info (contains all account details including balance)
             user_url = f"{self.base_url}/api/user/all"
-            _LOGGER.debug("Fetching user info from: %s", user_url)
-            _LOGGER.debug("Using headers: %s", headers)
+            _LOGGER.info("Fetching user info from: %s", user_url)
+            _LOGGER.info("Using headers: %s", headers)
 
             async with self.session.get(user_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                _LOGGER.debug("User response status: %s", response.status)
+                _LOGGER.info("User response status: %s", response.status)
                 _LOGGER.debug("Response headers: %s", dict(response.headers))
 
                 # Update XSRF token from response headers
@@ -386,7 +386,7 @@ class MarynoNetApiClient:
 
                 if response.status not in [200, 304]:
                     response_text = await response.text()
-                    _LOGGER.warning("User response: %s", response_text)
+                    _LOGGER.info("User response: %s", response_text)
                     raise Exception(f"Failed to get user info: {response.status} - {response_text}")
 
                 user_data = await response.json()
@@ -394,21 +394,21 @@ class MarynoNetApiClient:
 
                 # Extract customer number
                 customer_number = str(user_data.get("contract_num", user_data.get("contract", "")))
-                _LOGGER.debug("Extracted customer number: %s", customer_number)
+                _LOGGER.info("Extracted customer number: %s", customer_number)
 
                 # Extract balance
                 balance = float(user_data.get("balance", 0.0))
-                _LOGGER.debug("Extracted balance: %s", balance)
+                _LOGGER.info("Extracted balance: %s", balance)
 
                 # Extract bonus balance
                 bonus_balance = float(user_data.get("bonusBalance", 0.0))
-                _LOGGER.debug("Extracted bonus balance: %s", bonus_balance)
+                _LOGGER.info("Extracted bonus balance: %s", bonus_balance)
 
             # Get IP addresses (try subscriber endpoint) - keeping this separate as it might have different data
             ip_addresses = []
             try:
                 subscriber_url = f"{self.base_url}/api/acoount"
-                _LOGGER.debug("Fetching subscriber info from: %s", subscriber_url)
+                _LOGGER.info("Fetching subscriber info from: %s", subscriber_url)
 
                 async with self.session.get(subscriber_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as subscriber_response:
                     _LOGGER.info("Subscriber response status: %s", subscriber_response.status)
