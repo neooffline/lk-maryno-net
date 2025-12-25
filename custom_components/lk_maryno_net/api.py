@@ -190,6 +190,22 @@ class MarynoNetApiClient:
                 # Small delay to ensure session is fully established
                 await asyncio.sleep(0.5)
 
+                # Try to access the main page first to establish session (like standalone script)
+                _LOGGER.debug("Accessing main page to establish session...")
+                main_url = f"{self.base_url}/"
+                async with self.session.get(main_url, headers=self._get_browser_headers(), timeout=aiohttp.ClientTimeout(total=10)) as main_response:
+                    _LOGGER.debug("Main page response status: %s", main_response.status)
+                    # Update XSRF token from main page response
+                    self._update_xsrf_token_from_headers(main_response.headers)
+                    
+                    if main_response.status == 200:
+                        _LOGGER.debug("Main page access successful")
+                    else:
+                        _LOGGER.debug("Main page access failed: %s", main_response.status)
+
+                # Small additional delay
+                await asyncio.sleep(0.5)
+
                 # Verify authentication by trying to access user data with proper headers
                 test_url = f"{self.base_url}/api/user/contract"
                 test_headers = self._get_browser_headers()
@@ -228,6 +244,17 @@ class MarynoNetApiClient:
         headers = self._get_browser_headers()
 
         try:
+            # Access main page first to ensure session is fully established (like standalone script)
+            _LOGGER.debug("Accessing main page before API call...")
+            main_url = f"{self.base_url}/"
+            async with self.session.get(main_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as main_response:
+                _LOGGER.debug("Main page response status: %s", main_response.status)
+                # Update XSRF token from main page response
+                self._update_xsrf_token_from_headers(main_response.headers)
+
+            # Small delay
+            await asyncio.sleep(0.5)
+
             # Get user info (contains all account details including balance)
             user_url = f"{self.base_url}/api/user/all"
             _LOGGER.debug("Fetching user info from: %s", user_url)
