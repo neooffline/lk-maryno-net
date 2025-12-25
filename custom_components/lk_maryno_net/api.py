@@ -2,6 +2,8 @@
 import asyncio
 import logging
 import ssl
+import time
+import urllib.parse
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -11,23 +13,19 @@ from .const import ACCOUNT_URL, BASE_URL, AUTH_URL, POSSIBLE_BASE_URLS
 
 _LOGGER = logging.getLogger(__name__)
 
-
 class MarynoNetApiClient:
-    """API client for Maryno.net customer portal.
-
-    Note: This implementation handles SSL certificate issues that may occur
-    with some ISP portals. SSL verification can be disabled if necessary.
-    """
+    """API client for Maryno.net customer portal."""
 
     def __init__(self, username: str, password: str, verify_ssl: bool = True) -> None:
         """Initialize the API client."""
         self.username = username
         self.password = password
-        self.session = None
+        self.session: Optional[aiohttp.ClientSession] = None
         self._authenticated = False
         self.verify_ssl = verify_ssl
         self.base_url = BASE_URL
         self._connector = None
+        self._session_expiration = None
 
     async def __aenter__(self):
         """Enter async context."""
@@ -44,7 +42,6 @@ class MarynoNetApiClient:
         if self.verify_ssl:
             self._connector = aiohttp.TCPConnector()
         else:
-            # Create SSL context that doesn't verify certificates
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
@@ -52,31 +49,46 @@ class MarynoNetApiClient:
 
         self.session = aiohttp.ClientSession(connector=self._connector)
 
-    async def _try_base_url(self, base_url: str) -> bool:
-        """Try to connect to a specific base URL."""
-        try:
-            test_url = f"{base_url}/"
-            _LOGGER.debug("Testing URL: %s", test_url)
+    def _get_browser_headers(self) -> Dict[str, str]:
+        """Get browser-like headers with the most recent XSRF token from cookies."""
+        headers = {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "ru,en-US;q=0.9,en;q=0.8",
+            "dnt": "1",
+            "origin": self.base_url,
+            "referer": f"{self.base_url}/",
+            "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        }
 
-            async with self.session.get(test_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                _LOGGER.debug("Response status: %s, URL: %s", response.status, response.url)
-                return response.status < 400
+        # Извлекаем актуальный токен прямо из CookieJar перед запросом
+        if self.session:
+            for cookie in self.session.cookie_jar:
+                if cookie.key == 'XSRF-TOKEN':
+                    token = urllib.parse.unquote(cookie.value)
+                    headers['x-xsrf-token'] = token
+                    break
+        
+        return headers
 
-        except Exception as ex:
-            _LOGGER.debug("Failed to connect to %s: %s", base_url, ex)
-            return False
-
-    async def _find_working_base_url(self) -> Optional[str]:
-        """Find a working base URL from the list of possible URLs."""
-        if not self.session:
-            await self._create_session()
-
-        for base_url in POSSIBLE_BASE_URLS:
-            if await self._try_base_url(base_url):
-                _LOGGER.info("Found working base URL: %s", base_url)
-                return base_url
-
-        return None
+    def _update_xsrf_token_from_headers(self, headers) -> None:
+        """Manually update XSRF token if sent in Set-Cookie header."""
+        set_cookie = headers.get('Set-Cookie', '')
+        if 'XSRF-TOKEN=' in set_cookie:
+            for part in set_cookie.split(';'):
+                if part.strip().startswith('XSRF-TOKEN='):
+                    token_value = part.strip().split('=', 1)[1]
+                    self.session.cookie_jar.update_cookies(
+                        {'XSRF-TOKEN': token_value}, 
+                        URL(self.base_url)
+                    )
+                    _LOGGER.debug("Updated XSRF token from headers")
+                    break
 
     async def authenticate(self) -> None:
         """Authenticate with maryno.net."""
@@ -84,347 +96,73 @@ class MarynoNetApiClient:
             await self._create_session()
 
         try:
-            # First, try to find a working base URL
-            working_url = await self._find_working_base_url()
-            if working_url:
-                self.base_url = working_url
-            else:
-                # If no working URL found, try the auth URL domain as fallback
-                from urllib.parse import urlparse
-                auth_domain = urlparse(AUTH_URL).scheme + "://" + urlparse(AUTH_URL).netloc
-                self.base_url = auth_domain
-                _LOGGER.warning("No working base URL found, using auth domain: %s", self.base_url)
+            # 1. Сначала заходим на главную, чтобы получить начальные куки
+            async with self.session.get(self.base_url, timeout=10) as resp:
+                self._update_xsrf_token_from_headers(resp.headers)
 
-            # Try to access user data directly (may not require authentication)
-            test_url = f"{self.base_url}/api/user/contract"
-            test_headers = self._get_browser_headers()
-            async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status in [200, 304]:
-                    _LOGGER.info("Successfully authenticated with maryno.net at %s", self.base_url)
-                    self._authenticated = True
-                    return
+            # 2. Логин
+            login_data = {"username": self.username, "password": self.password}
+            auth_headers = self._get_browser_headers()
+            auth_headers["content-type"] = "application/json"
+            auth_headers["referer"] = f"{self.base_url}/auth"
 
-            # If direct access fails, try login
-            await self._perform_login()
-
-        except Exception as ex:
-            # If SSL verification fails, try with SSL disabled
-            if "CERTIFICATE_VERIFY_FAILED" in str(ex) or "SSL" in str(ex):
-                _LOGGER.warning("SSL certificate verification failed, trying with SSL verification disabled")
-                self.verify_ssl = False
-                await self.session.close()
-                await self._create_session()
-
-                # Try again with SSL disabled
-                working_url = await self._find_working_base_url()
-                if working_url:
-                    self.base_url = working_url
-                else:
-                    # Use auth domain as fallback
-                    from urllib.parse import urlparse
-                    auth_domain = urlparse(AUTH_URL).scheme + "://" + urlparse(AUTH_URL).netloc
-                    self.base_url = auth_domain
-
-                await self.authenticate()
-            else:
-                raise
-
-    async def _perform_login(self) -> None:
-        """Perform login to obtain session cookies."""
-        _LOGGER.info("Attempting authentication with URL: %s", AUTH_URL)
-
-        # Send login data as JSON
-        login_data = {
-            "username": self.username,
-            "password": self.password,
-        }
-
-        # Use browser-like headers for authentication
-        auth_headers = {
-            "accept": "application/json, text/plain, */*",
-            "accept-encoding": "gzip, deflate, br, zstd",
-            "accept-language": "ru,en-US;q=0.9,en;q=0.8,bg;q=0.7",
-            "content-type": "application/json",
-            "dnt": "1",
-            "origin": "https://lk.maryno.net",
-            "priority": "u=1, i",
-            "referer": "https://lk.maryno.net/auth",
-            "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"macOS"',
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-origin",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
-        }
-
-        try:
             async with self.session.post(
-                AUTH_URL,
-                json=login_data,
-                headers=auth_headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-                allow_redirects=True
+                AUTH_URL, 
+                json=login_data, 
+                headers=auth_headers, 
+                timeout=30
             ) as response:
-                _LOGGER.info("Auth response status: %s", response.status)
-                response_text = await response.text()
-                _LOGGER.info("Auth response body: %s", response_text)
-
                 if response.status not in [200, 304]:
-                    raise Exception(f"Authentication failed: {response.status} - {response_text}")
+                    text = await response.text()
+                    raise Exception(f"Auth failed: {response.status} - {text}")
 
-                # Parse auth response for expiration and session info
-                try:
-                    import json
-                    auth_data = json.loads(response_text)
-                    _LOGGER.debug("Auth response JSON: %s", auth_data)
-                    
-                    # Check for expiration date in auth response
-                    if isinstance(auth_data, dict) and 'expiration' in auth_data:
-                        self._session_expiration = auth_data['expiration']
-                        _LOGGER.info("Session expiration: %s", self._session_expiration)
-                    elif isinstance(auth_data, dict) and 'expires' in auth_data:
-                        self._session_expiration = auth_data['expires']
-                        _LOGGER.info("Session expires: %s", self._session_expiration)
-                except Exception as json_ex:
-                    _LOGGER.debug("Could not parse auth response as JSON: %s", json_ex)
-
-                # Check if we got session cookies
-                cookies = list(self.session.cookie_jar)
-                if cookies:
-                    _LOGGER.info("All session cookies after auth: %s", [(cookie.key, cookie.value[:30] + "..." if len(cookie.value) > 30 else cookie.value) for cookie in cookies])
-
-                    # Look for expected cookies like connect.sid, XSRF-TOKEN
-                    has_session = any(cookie.key in ['connect.sid', 'session', 'sessionid'] for cookie in cookies)
-                    has_xsrf = any(cookie.key == 'XSRF-TOKEN' for cookie in cookies)
-
-                    if has_session:
-                        _LOGGER.info("Session cookie found, authentication likely successful")
-                    if has_xsrf:
-                        _LOGGER.info("XSRF token found")
-
-                # Check session expiration before proceeding
-                if not self._check_session_expiration():
-                    raise Exception("Session has expired, please re-authenticate")
-
-                # Prepare headers to match browser requests
-                headers = self._get_browser_headers()
-
-                # Step 1: Access contract page first (as discovered by user)
-                _LOGGER.info("Step 1: Accessing contract page to establish session...")
-                contract_page_url = f"{self.base_url}/contract"
-                async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response:
-                    _LOGGER.info("Contract page response status: %s", contract_response.status)
-                    # Update XSRF token from contract page response
-                    self._update_xsrf_token_from_headers(contract_response.headers)
-                    
-                    if contract_response.status in [200, 304]:
-                        _LOGGER.info("Contract page access successful")
-                    else:
-                        _LOGGER.info("Contract page access failed: %s", contract_response.status)
-
-                # Small delay
-                await asyncio.sleep(0.5)
-
-                # Step 2: Access main page (as per user discovery)
-                _LOGGER.info("Step 2: Accessing main page...")
-                main_url = f"{self.base_url}/"
-                async with self.session.get(main_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as main_response:
-                    _LOGGER.info("Main page response status: %s", main_response.status)
-                    # Update XSRF token from main page response
-                    self._update_xsrf_token_from_headers(main_response.headers)
-                    
-                    if main_response.status in [200, 304]:
-                        _LOGGER.info("Main page access successful")
-                    else:
-                        _LOGGER.info("Main page access failed: %s", main_response.status)
-
-                # Small delay
-                await asyncio.sleep(0.5)
-
-                # Step 3: Access contract page again before API calls (as per user discovery)
-                _LOGGER.info("Step 3: Accessing contract page again...")
-                async with self.session.get(contract_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as contract_response2:
-                    _LOGGER.info("Contract page (second) response status: %s", contract_response2.status)
-                    # Update XSRF token from second contract page response
-                    self._update_xsrf_token_from_headers(contract_response2.headers)
-                    
-                    if contract_response2.status in [200, 304]:
-                        _LOGGER.info("Contract page (second) access successful")
-                    else:
-                        _LOGGER.info("Contract page (second) access failed: %s", contract_response2.status)
-
-                # Small delay
-                await asyncio.sleep(0.5)
-
-                # Verify authentication by trying to access user data with proper headers
-                test_url = f"{self.base_url}/api/user/contract"
-                test_headers = self._get_browser_headers()
-                _LOGGER.info("Testing API access with URL: %s", test_url)
-                _LOGGER.info("Testing API access with headers: %s", test_headers)
-                async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
-                    _LOGGER.info("API test response status: %s", test_response.status)
-                    _LOGGER.info("API test response headers: %s", dict(test_response.headers))                    
-                    # Update XSRF token from response headers
-                    self._update_xsrf_token_from_headers(test_response.headers)
-                    
-                    test_response_text = await test_response.text()
-                    _LOGGER.info("API test response body: %s", test_response_text[:500])
-
-                    if test_response.status in [200, 304]:
-                        self._authenticated = True
-                        _LOGGER.info("Successfully authenticated with maryno.net at %s", self.base_url)
-                        return
-                    else:
-                        raise Exception(f"Authentication succeeded but API access failed (status: {test_response.status})")
+                res_json = await response.json()
+                self._session_expiration = res_json.get('expiration') or res_json.get('expires')
+                self._authenticated = True
+                _LOGGER.info("Successfully authenticated")
 
         except Exception as ex:
-            _LOGGER.error("Authentication failed: %s", ex)
+            _LOGGER.error("Authentication error: %s", ex)
             raise
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Get account information with improved token handling."""
+        """Get account information with retry on 401."""
         if not self._authenticated:
-            _LOGGER.info("Not authenticated, performing authentication")
             await self.authenticate()
 
-        # Проверка на просроченную сессию
-        if not self._check_session_expiration():
-            _LOGGER.info("Session expired, re-authenticating")
-            self._authenticated = False
-            await self.authenticate()
-
+        # Минимальный "прогрев" сессии перед запросом данных
+        headers = self._get_browser_headers()
         try:
-            # Шаг 1: Минимальный прогрев - только dashboard
-            # Это обычно достаточно для установки актуальных XSRF кук
-            headers = self._get_browser_headers()
-            dashboard_url = f"{self.base_url}/dashboard"
-            async with self.session.get(dashboard_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            # Заходим на dashboard, чтобы подтвердить активность сессии
+            async with self.session.get(f"{self.base_url}/dashboard", headers=headers) as resp:
                 self._update_xsrf_token_from_headers(resp.headers)
             
             await asyncio.sleep(0.5)
 
-            # Шаг 2: Запрос данных
+            # Основной запрос данных
             user_url = f"{self.base_url}/api/user/all"
-            # Генерируем заголовки ПРЯМО перед запросом, чтобы x-xsrf-token был свежайшим
             api_headers = self._get_browser_headers()
             api_headers['referer'] = f"{self.base_url}/dashboard"
-            
-            _LOGGER.info("Fetching user info with token: %s", api_headers.get('x-xsrf-token'))
 
-            async with self.session.get(user_url, headers=api_headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with self.session.get(user_url, headers=api_headers, timeout=30) as response:
                 if response.status == 401:
-                    _LOGGER.warning("Received 401, session might be invalid. Resetting auth.")
+                    _LOGGER.warning("401 Unauthorized. Session lost, retrying auth...")
                     self._authenticated = False
-                    raise Exception("Unauthorized: session lost")
+                    await self.authenticate()
+                    return await self.get_account_info()
 
                 if response.status not in [200, 304]:
-                    text = await response.text()
-                    raise Exception(f"Failed to get user info: {response.status} - {text}")
+                    raise Exception(f"API Error: {response.status}")
 
                 user_data = await response.json()
                 
-                # Извлекаем данные (добавлен безопасный get)
                 return {
                     "balance": float(user_data.get("balance", 0.0)),
-                    "customer_number": str(user_data.get("contract_num", user_data.get("contract", "Unknown"))),
-                    "ip_addresses": [], # Можно будет распарсить позже
+                    "customer_number": str(user_data.get("contract_num", user_data.get("contract", ""))),
+                    "ip_addresses": [],
                     "bonus_balance": float(user_data.get("bonusBalance", 0.0)),
                 }
 
         except Exception as ex:
             _LOGGER.error("Failed to get account info: %s", ex)
-            self._authenticated = False # Сбрасываем флаг при любой ошибке связи
             raise
-
-    def _get_browser_headers(self) -> Dict[str, str]:
-        """Get browser-like headers to match web requests."""
-        headers = {
-            "accept": "application/json, text/plain, */*",
-            "accept-language": "ru,en-US;q=0.9,en;q=0.8",
-            "dnt": "1",
-            "origin": self.base_url,
-            "referer": f"{self.base_url}/",
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-origin",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-
-        # Важный момент: берем токен из cookie_jar напрямую
-        xsrf_token = None
-        for cookie in self.session.cookie_jar:
-            if cookie.key == 'XSRF-TOKEN':
-                import urllib.parse
-                xsrf_token = urllib.parse.unquote(cookie.value)
-                break
-        
-        if xsrf_token:
-            headers['x-xsrf-token'] = xsrf_token
-
-        return headers
-    
-    def _get_xsrf_token(self) -> Optional[str]:
-        """Extract XSRF token from cookies."""
-        import urllib.parse
-
-        for cookie in self.session.cookie_jar:
-            if cookie.key == 'XSRF-TOKEN':
-                # URL decode the token as it might be encoded in the cookie
-                decoded_token = urllib.parse.unquote(cookie.value)
-                _LOGGER.info("Found XSRF token (raw): %s, decoded: %s", cookie.value, decoded_token)
-                return decoded_token
-        return None
-    def _check_session_expiration(self) -> bool:
-        """Check if the current session is still valid based on expiration."""
-        if not hasattr(self, '_session_expiration') or not self._session_expiration:
-            return True  # No expiration info, assume valid
-        
-        try:
-            import time
-            current_time = int(time.time() * 1000)  # Current time in milliseconds
-            
-            # If expiration is a string, try to parse it
-            if isinstance(self._session_expiration, str):
-                # Try different date formats
-                try:
-                    # ISO format
-                    import datetime
-                    expiration_dt = datetime.datetime.fromisoformat(self._session_expiration.replace('Z', '+00:00'))
-                    expiration_time = int(expiration_dt.timestamp() * 1000)
-                except:
-                    # Try as timestamp
-                    expiration_time = int(self._session_expiration)
-            else:
-                expiration_time = int(self._session_expiration)
-            
-            if current_time < expiration_time:
-                _LOGGER.debug("Session is still valid until: %s", self._session_expiration)
-                return True
-            else:
-                _LOGGER.warning("Session has expired: %s", self._session_expiration)
-                self._authenticated = False
-                return False
-                
-        except Exception as ex:
-            _LOGGER.debug("Could not check session expiration: %s", ex)
-            return True  # Assume valid if we can't check
-
-    def _update_xsrf_token_from_headers(self, headers) -> None:
-        """Update XSRF token from response headers."""
-        import urllib.parse
-        
-        set_cookie = headers.get('Set-Cookie', '')
-        if 'XSRF-TOKEN=' in set_cookie:
-            # Extract token from Set-Cookie header
-            cookie_parts = set_cookie.split(';')
-            for part in cookie_parts:
-                if part.strip().startswith('XSRF-TOKEN='):
-                    token_value = part.strip().split('=', 1)[1]
-                    decoded_token = urllib.parse.unquote(token_value)
-                    
-                    # Update the cookie using update_cookies method
-                    base_url = URL(self.base_url)
-                    self.session.cookie_jar.update_cookies({'XSRF-TOKEN': token_value}, base_url)
-                    _LOGGER.info("Updated XSRF token from headers: %s", decoded_token)
-                    return
