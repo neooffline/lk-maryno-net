@@ -182,9 +182,9 @@ class MarynoNetApiClient:
                     has_xsrf = any(cookie.key == 'XSRF-TOKEN' for cookie in cookies)
 
                     if has_session:
-                        _LOGGER.debug("Session cookie found, authentication likely successful")
+                        _LOGGER.info("Session cookie found, authentication likely successful")
                     if has_xsrf:
-                        _LOGGER.debug("XSRF token found")
+                        _LOGGER.info("XSRF token found")
 
                 # Small delay to ensure session is fully established
                 await asyncio.sleep(0.5)
@@ -195,10 +195,10 @@ class MarynoNetApiClient:
                 _LOGGER.debug("Testing API access with URL: %s", test_url)
                 _LOGGER.debug("Testing API access with headers: %s", test_headers)
                 async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
-                    _LOGGER.debug("API test response status: %s", test_response.status)
-                    _LOGGER.debug("API test response headers: %s", dict(test_response.headers))
+                    _LOGGER.info("API test response status: %s", test_response.status)
+                    _LOGGER.info("API test response headers: %s", dict(test_response.headers))
                     test_response_text = await test_response.text()
-                    _LOGGER.debug("API test response body: %s", test_response_text[:500])
+                    _LOGGER.info("API test response body: %s", test_response_text[:500])
 
                     if test_response.status in [200, 304]:
                         self._authenticated = True
@@ -214,6 +214,7 @@ class MarynoNetApiClient:
     async def get_account_info(self) -> Dict[str, Any]:
         """Get account information."""
         if not self._authenticated:
+            _LOGGER.info("Not authenticated, performing authentication")
             await self.authenticate()
 
         if not self.session:
@@ -232,13 +233,13 @@ class MarynoNetApiClient:
                 _LOGGER.debug("User response status: %s", response.status)
                 _LOGGER.debug("Response headers: %s", dict(response.headers))
 
-                if response.status not in [200,304]:
+                if response.status not in [200, 304]:
                     response_text = await response.text()
-                    _LOGGER.debug("User response: %s", response_text)
+                    _LOGGER.warning("User response: %s", response_text)
                     raise Exception(f"Failed to get user info: {response.status} - {response_text}")
 
                 user_data = await response.json()
-                _LOGGER.debug("User data received: %s", user_data)
+                _LOGGER.info("User data received: %s", user_data)
 
                 # Extract customer number
                 customer_number = str(user_data.get("contract_num", user_data.get("contract", "")))
