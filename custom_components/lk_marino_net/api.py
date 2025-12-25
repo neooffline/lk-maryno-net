@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 import aiohttp
 
-from .const import ACCOUNT_URL, BASE_URL, LOGIN_URL, POSSIBLE_BASE_URLS
+from .const import ACCOUNT_URL, BASE_URL, AUTH_URL, POSSIBLE_BASE_URLS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,11 +120,9 @@ class MarynoNetApiClient:
 
     async def _perform_login(self) -> None:
         """Perform login to obtain session cookies."""
-        login_url = f"{self.base_url}/login"
+        _LOGGER.debug("Attempting authentication with URL: %s", AUTH_URL)
 
-        _LOGGER.debug("Attempting login with base URL: %s", self.base_url)
-
-        # Try login with form data (most common for web logins that set session cookies)
+        # Send login data as JSON
         login_data = {
             "username": self.username,
             "password": self.password,
@@ -132,17 +130,17 @@ class MarynoNetApiClient:
 
         try:
             async with self.session.post(
-                login_url,
-                data=login_data,
+                AUTH_URL,
+                json=login_data,
                 timeout=aiohttp.ClientTimeout(total=30),
                 allow_redirects=True
             ) as response:
-                _LOGGER.debug("Login response status: %s", response.status)
+                _LOGGER.debug("Auth response status: %s", response.status)
 
                 if response.status not in [200, 302]:
                     response_text = await response.text()
-                    _LOGGER.debug("Login response: %s", response_text)
-                    raise Exception(f"Login failed: {response.status} - {response_text}")
+                    _LOGGER.debug("Auth response: %s", response_text)
+                    raise Exception(f"Authentication failed: {response.status} - {response_text}")
 
                 # Check if we got session cookies
                 cookies = list(self.session.cookie_jar)
@@ -168,10 +166,10 @@ class MarynoNetApiClient:
                     else:
                         test_text = await test_response.text()
                         _LOGGER.debug("Authentication test failed: %s - %s", test_response.status, test_text[:200])
-                        raise Exception("Login succeeded but authentication test failed")
+                        raise Exception("Authentication succeeded but API access failed")
 
         except Exception as ex:
-            _LOGGER.error("Login failed: %s", ex)
+            _LOGGER.error("Authentication failed: %s", ex)
             raise
 
     async def get_account_info(self) -> Dict[str, Any]:

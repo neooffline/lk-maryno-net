@@ -14,7 +14,7 @@ POSSIBLE_BASE_URLS = [
     "https://my.maryno.net",   # Common pattern
 ]
 BASE_URL = "https://lk.maryno.net"  # Default fallback - confirmed working
-LOGIN_URL = f"{BASE_URL}/login"
+AUTH_URL = f"{BASE_URL}/auth"  # Authentication endpoint
 ACCOUNT_URL = f"{BASE_URL}/api/user/all"  # Updated to correct endpoint
 
 # Sensor types

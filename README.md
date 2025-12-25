@@ -46,12 +46,20 @@ The integration provides the following sensors:
 
 ### Authentication Method
 
-The integration uses cookie-based authentication:
+The integration uses JSON-based authentication:
 
-1. **Login**: POST request to `/login` with username/password
+1. **Auth Request**: POST to `/auth` with JSON payload:
+   ```json
+   {
+     "username": "your_contract_number",
+     "password": "your_password"
+   }
+   ```
 2. **Session Cookies**: Obtains `connect.sid`, `XSRF-TOKEN`, and other session cookies
 3. **API Access**: Uses session cookies for subsequent API calls
 4. **CSRF Protection**: Includes `X-XSRF-TOKEN` header when available
+
+**Note**: The username is typically your contract number (e.g., "69292"), not your login email.
 
 ### API Endpoints Used
 
