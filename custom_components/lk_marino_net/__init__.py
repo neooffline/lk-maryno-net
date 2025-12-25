@@ -20,6 +20,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api_client = MarinoNetApiClient(
         username=entry.data["username"],
         password=entry.data["password"],
+        verify_ssl=entry.data.get("verify_ssl", True),
     )
 
     # Test the API connection

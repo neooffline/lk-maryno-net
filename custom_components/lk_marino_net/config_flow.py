@@ -18,6 +18,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("username"): str,
         vol.Required("password"): str,
+        vol.Optional("verify_ssl", default=True): bool,
     }
 )
 
@@ -39,6 +40,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 api_client = MarinoNetApiClient(
                     username=user_input["username"],
                     password=user_input["password"],
+                    verify_ssl=user_input.get("verify_ssl", True),
                 )
                 await api_client.authenticate()
                 await api_client.get_account_info()

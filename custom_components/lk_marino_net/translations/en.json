@@ -4,11 +4,13 @@
       "user": {
         "data": {
           "username": "Username",
-          "password": "Password"
+          "password": "Password",
+          "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
           "username": "Your Marino.net username",
-          "password": "Your Marino.net password"
+          "password": "Your Marino.net password",
+          "verify_ssl": "Verify SSL certificate (disable if you have certificate issues)"
         }
       }
     },

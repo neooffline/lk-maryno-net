@@ -4,11 +4,13 @@
       "user": {
         "data": {
           "username": "Имя пользователя",
-          "password": "Пароль"
+          "password": "Пароль",
+          "verify_ssl": "Проверять SSL сертификат"
         },
         "data_description": {
           "username": "Ваше имя пользователя Marino.net",
-          "password": "Ваш пароль Marino.net"
+          "password": "Ваш пароль Marino.net",
+          "verify_ssl": "Проверять SSL сертификат (отключите при проблемах с сертификатом)"
         }
       }
     },
