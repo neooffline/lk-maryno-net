@@ -20,11 +20,11 @@ class MarynoNetApiClient:
         self._authenticated = False
         self.verify_ssl = verify_ssl
         self.base_url = BASE_URL
-        self._auth_attempts = 0 # Счетчик для предотвращения цикла
+        self._auth_attempts = 0
 
     async def _create_session(self) -> None:
-        """Create aiohttp session."""
-        if self.session:
+        """Create aiohttp session with persistent cookie jar."""
+        if self.session and not self.session.closed:
             return
             
         conn_kwargs = {}
@@ -35,19 +35,23 @@ class MarynoNetApiClient:
             conn_kwargs["ssl"] = ssl_context
 
         connector = aiohttp.TCPConnector(**conn_kwargs)
-        # cookie_jar сам управляет куками, включая XSRF-TOKEN
-        self.session = aiohttp.ClientSession(connector=connector)
+        self.session = aiohttp.ClientSession(
+            connector=connector,
+            cookie_jar=aiohttp.CookieJar(unsafe=True)
+        )
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Build headers fetching fresh XSRF token from session cookies."""
+    def _get_headers(self, referer: str = None) -> Dict[str, str]:
+        """Build headers with XSRF token from session cookies."""
         headers = {
             "accept": "application/json, text/plain, */*",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "origin": self.base_url,
-            "referer": f"{self.base_url}/",
+            "referer": referer or f"{self.base_url}/",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
         }
 
-        # Ищем XSRF-TOKEN в куках сессии
         if self.session:
             for cookie in self.session.cookie_jar:
                 if cookie.key == 'XSRF-TOKEN':
@@ -55,62 +59,81 @@ class MarynoNetApiClient:
                     break
         return headers
 
+    async def _sync_session(self, path: str = "/info") -> None:
+        """Crucial step: Sync session with the server for the specific path."""
+        if not self.session:
+            return
+        
+        encoded_path = urllib.parse.quote(path, safe='')
+        sync_url = f"{self.base_url}/api/session?path={encoded_path}"
+        
+        _LOGGER.debug("Syncing session for path: %s", path)
+        async with self.session.get(sync_url, headers=self._get_headers(), timeout=10) as resp:
+            # Даже если 304 или 200, куки обновятся автоматически в jar
+            await resp.text()
+
     async def authenticate(self) -> None:
-        """Authenticate with minimal steps."""
+        """Authentication sequence with session synchronization."""
         await self._create_session()
         
         try:
-            # 1. Получаем начальный XSRF токен с главной страницы
+            # 1. Получаем токены с главной
             async with self.session.get(self.base_url, timeout=10) as resp:
-                _LOGGER.debug("Initial page status: %s", resp.status)
+                await resp.text()
 
-            # 2. Выполняем POST логин
+            # 2. Логин
             login_data = {"username": self.username, "password": self.password}
-            headers = self._get_headers()
+            headers = self._get_headers(referer=f"{self.base_url}/auth")
             headers["content-type"] = "application/json"
 
             async with self.session.post(AUTH_URL, json=login_data, headers=headers, timeout=20) as resp:
                 if resp.status not in [200, 304]:
                     text = await resp.text()
                     raise Exception(f"Login failed ({resp.status}): {text}")
-                
-                _LOGGER.info("Authentication successful")
-                self._authenticated = True
-                self._auth_attempts = 0 # Сброс счетчика при успехе
+                await resp.text()
+
+            # 3. Синхронизируем сессию для путей личного кабинета
+            await self._sync_session("/dashboard")
+            await self._sync_session("/info")
+            
+            _LOGGER.info("Authentication and session sync completed")
+            self._authenticated = True
+            self._auth_attempts = 0 
 
         except Exception as ex:
-            _LOGGER.error("Auth error: %s", ex)
+            _LOGGER.error("Auth process error: %s", ex)
             self._authenticated = False
             raise
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Fetch data with a simple structure."""
+        """Fetch data using the synchronized session."""
         if not self._authenticated:
             await self.authenticate()
 
-        # Идем СРАЗУ к API, минуя dashboard, чтобы не провоцировать сброс токена
+        # Перед каждым запросом данных подтверждаем путь в сессии
+        await self._sync_session("/info")
+        
         user_url = f"{self.base_url}/api/user/all"
-        headers = self._get_headers()
+        headers = self._get_headers(referer=f"{self.base_url}/info")
         
         try:
             async with self.session.get(user_url, headers=headers, timeout=20) as resp:
                 if resp.status == 401:
+                    _LOGGER.warning("401 Unauthorized. Retrying auth sequence...")
                     if self._auth_attempts < 2:
-                        _LOGGER.warning("401 during data fetch. Retrying auth...")
                         self._auth_attempts += 1
                         self._authenticated = False
+                        self.session.cookie_jar.clear()
                         await self.authenticate()
                         return await self.get_account_info()
                     else:
-                        raise Exception("Auth loop detected. Stopping.")
+                        raise Exception("Persistent 401: Auth loop blocked.")
 
                 if resp.status != 200:
-                    raise Exception(f"API returned {resp.status}")
+                    text = await resp.text()
+                    raise Exception(f"API Error ({resp.status}): {text}")
 
                 data = await resp.json()
-                
-                # Возвращаем данные. 
-                # Важно: если структура в логах была [ {...} ], берем data[0]
                 user_info = data[0] if isinstance(data, list) else data
 
                 return {
@@ -122,4 +145,5 @@ class MarynoNetApiClient:
 
         except Exception as ex:
             _LOGGER.error("Data fetch error: %s", ex)
+            self._authenticated = False
             raise
