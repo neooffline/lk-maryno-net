@@ -367,6 +367,9 @@ class MarynoNetApiClient:
                 # Update XSRF token from contract API response
                 self._update_xsrf_token_from_headers(contract_api_response.headers)
                 
+                # Refresh headers with updated XSRF token
+                headers = self._get_browser_headers()
+                
                 if contract_api_response.status not in [200, 304]:
                     contract_response_text = await contract_api_response.text()
                     _LOGGER.info("Contract API response: %s", contract_response_text)
