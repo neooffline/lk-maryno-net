@@ -210,3 +210,4 @@ response.html
 main_page.html
 test_api.py
 stand_alone_debug.py
+.DS_Store
