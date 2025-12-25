@@ -147,7 +147,7 @@ class MarynoNetApiClient:
             "dnt": "1",
             "origin": "https://lk.maryno.net",
             "priority": "u=1, i",
-            "referer": "https://lk.maryno.net/login",
+            "referer": "https://lk.maryno.net/auth",
             "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"macOS"',
@@ -246,8 +246,13 @@ class MarynoNetApiClient:
                 else:
                     contract = contract_data if isinstance(contract_data, dict) else {}
 
+                # Extract customer number
+                customer_number = str(contract.get("contract_num", contract.get("contract", "")))
+                _LOGGER.debug("Extracted customer number: %s", customer_number)
+
             # Get IP addresses (try subscriber endpoint)
             ip_addresses = []
+            balance = 0.0
             try:
                 subscriber_url = f"{self.base_url}/api/user/subscriber"
                 _LOGGER.debug("Fetching subscriber info from: %s", subscriber_url)
@@ -258,30 +263,41 @@ class MarynoNetApiClient:
                     if subscriber_response.status == 200:
                         subscriber_data = await subscriber_response.json()
                         _LOGGER.debug("Subscriber data received: %s", subscriber_data)
-                        # TODO: Extract IP addresses from subscriber data
+                        
+                        # Try to extract balance from subscriber data
+                        if isinstance(subscriber_data, dict):
+                            balance = subscriber_data.get("balance", subscriber_data.get("account_balance", 0.0))
+                        elif isinstance(subscriber_data, list) and len(subscriber_data) > 0:
+                            balance = subscriber_data[0].get("balance", subscriber_data[0].get("account_balance", 0.0))
+                        
+                        # Extract IP addresses if available
+                        # TODO: Parse IP addresses from subscriber data structure
             except Exception as ex:
                 _LOGGER.debug("Failed to get subscriber info: %s", ex)
 
-            # Get bonus info (keep existing logic)
-            bonus_url = f"{self.base_url}/api/gbonus/info"
-            _LOGGER.debug("Fetching bonus info from: %s", bonus_url)
-
-            bonus_balance = 0
+            # Try to get balance from dedicated balance endpoint
             try:
-                async with self.session.get(bonus_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as bonus_response:
-                    _LOGGER.debug("Bonus response status: %s", bonus_response.status)
+                balance_url = f"{self.base_url}/api/user/balance"
+                _LOGGER.debug("Fetching balance info from: %s", balance_url)
 
-                    if bonus_response.status == 200:
-                        bonus_data = await bonus_response.json()
-                        _LOGGER.debug("Bonus data received: %s", bonus_data)
-                        bonus_balance = bonus_data.get("n_bonus", 0)
+                async with self.session.get(balance_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as balance_response:
+                    _LOGGER.debug("Balance response status: %s", balance_response.status)
+
+                    if balance_response.status == 200:
+                        balance_data = await balance_response.json()
+                        _LOGGER.debug("Balance data received: %s", balance_data)
+                        
+                        if isinstance(balance_data, dict):
+                            balance = balance_data.get("balance", balance_data.get("amount", balance))
+                        elif isinstance(balance_data, (int, float)):
+                            balance = float(balance_data)
             except Exception as ex:
-                _LOGGER.debug("Failed to get bonus info: %s", ex)
+                _LOGGER.debug("Failed to get balance info: %s", ex)
 
             # Extract the required information from contract_data
             return {
-                "balance": 0.0,  # TODO: Find balance in contract/subscriber/product data
-                "customer_number": str(contract.get("contract_num", contract.get("contract", ""))),
+                "balance": float(balance),
+                "customer_number": customer_number,
                 "ip_addresses": ip_addresses,
                 "bonus_balance": float(bonus_balance),
             }
