@@ -78,7 +78,7 @@ class MarynoNetApiClient:
         return None
 
     async def authenticate(self) -> None:
-        """Authenticate with Maryno.net."""
+        """Authenticate with maryno.net."""
         if not self.session:
             await self._create_session()
 
@@ -88,14 +88,18 @@ class MarynoNetApiClient:
             if working_url:
                 self.base_url = working_url
             else:
-                _LOGGER.warning("No working base URL found, using default: %s", self.base_url)
+                # If no working URL found, try the auth URL domain as fallback
+                from urllib.parse import urlparse
+                auth_domain = urlparse(AUTH_URL).scheme + "://" + urlparse(AUTH_URL).netloc
+                self.base_url = auth_domain
+                _LOGGER.warning("No working base URL found, using auth domain: %s", self.base_url)
 
             # Try to access user data directly (may not require authentication)
             test_url = f"{self.base_url}/api/user/all"
             test_headers = self._get_browser_headers()
             async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status == 200:
-                    _LOGGER.info("Successfully authenticated with Maryno.net at %s", self.base_url)
+                    _LOGGER.info("Successfully authenticated with maryno.net at %s", self.base_url)
                     self._authenticated = True
                     return
 
@@ -114,6 +118,11 @@ class MarynoNetApiClient:
                 working_url = await self._find_working_base_url()
                 if working_url:
                     self.base_url = working_url
+                else:
+                    # Use auth domain as fallback
+                    from urllib.parse import urlparse
+                    auth_domain = urlparse(AUTH_URL).scheme + "://" + urlparse(AUTH_URL).netloc
+                    self.base_url = auth_domain
 
                 await self.authenticate()
             else:
@@ -136,9 +145,9 @@ class MarynoNetApiClient:
             "accept-language": "ru,en-US;q=0.9,en;q=0.8,bg;q=0.7",
             "content-type": "application/json",
             "dnt": "1",
-            "origin": "https://lk.marino.net",
+            "origin": "https://lk.maryno.net",
             "priority": "u=1, i",
-            "referer": "https://lk.marino.net/login",
+            "referer": "https://lk.maryno.net/login",
             "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"macOS"',
@@ -157,16 +166,16 @@ class MarynoNetApiClient:
                 allow_redirects=True
             ) as response:
                 _LOGGER.debug("Auth response status: %s", response.status)
+                response_text = await response.text()
+                _LOGGER.debug("Auth response body: %s", response_text)
 
                 if response.status not in [200, 302]:
-                    response_text = await response.text()
-                    _LOGGER.debug("Auth response: %s", response_text)
                     raise Exception(f"Authentication failed: {response.status} - {response_text}")
 
                 # Check if we got session cookies
                 cookies = list(self.session.cookie_jar)
                 if cookies:
-                    _LOGGER.debug("Session cookies obtained: %s", [f"{cookie.key}={cookie.value[:20]}..." for cookie in cookies])
+                    _LOGGER.debug("All session cookies after auth: %s", [(cookie.key, cookie.value[:30] + "..." if len(cookie.value) > 30 else cookie.value) for cookie in cookies])
 
                     # Look for expected cookies like connect.sid, XSRF-TOKEN
                     has_session = any(cookie.key in ['connect.sid', 'session', 'sessionid'] for cookie in cookies)
@@ -177,18 +186,26 @@ class MarynoNetApiClient:
                     if has_xsrf:
                         _LOGGER.debug("XSRF token found")
 
+                # Small delay to ensure session is fully established
+                await asyncio.sleep(0.5)
+
                 # Verify authentication by trying to access user data with proper headers
                 test_url = f"{self.base_url}/api/user/all"
                 test_headers = self._get_browser_headers()
+                _LOGGER.debug("Testing API access with URL: %s", test_url)
+                _LOGGER.debug("Testing API access with headers: %s", test_headers)
                 async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as test_response:
+                    _LOGGER.debug("API test response status: %s", test_response.status)
+                    _LOGGER.debug("API test response headers: %s", dict(test_response.headers))
+                    test_response_text = await test_response.text()
+                    _LOGGER.debug("API test response body: %s", test_response_text[:500])
+
                     if test_response.status == 200:
                         self._authenticated = True
-                        _LOGGER.info("Successfully authenticated with Maryno.net at %s", self.base_url)
+                        _LOGGER.info("Successfully authenticated with maryno.net at %s", self.base_url)
                         return
                     else:
-                        test_text = await test_response.text()
-                        _LOGGER.debug("Authentication test failed: %s - %s", test_response.status, test_text[:200])
-                        raise Exception("Authentication succeeded but API access failed")
+                        raise Exception(f"Authentication succeeded but API access failed (status: {test_response.status})")
 
         except Exception as ex:
             _LOGGER.error("Authentication failed: %s", ex)
@@ -206,42 +223,46 @@ class MarynoNetApiClient:
         headers = self._get_browser_headers()
 
         try:
-            # Get user info (balance, customer number, etc.)
-            user_url = f"{self.base_url}/api/user/all"
-            _LOGGER.debug("Fetching user info from: %s", user_url)
+            # Get contract info (contains customer number and other details)
+            contract_url = f"{self.base_url}/api/user/contract"
+            _LOGGER.debug("Fetching contract info from: %s", contract_url)
             _LOGGER.debug("Using headers: %s", headers)
 
-            async with self.session.get(user_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                _LOGGER.debug("User info response status: %s", response.status)
+            async with self.session.get(contract_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                _LOGGER.debug("Contract response status: %s", response.status)
                 _LOGGER.debug("Response headers: %s", dict(response.headers))
 
                 if response.status != 200:
                     response_text = await response.text()
-                    _LOGGER.debug("User info response: %s", response_text)
-                    raise Exception(f"Failed to get user info: {response.status} - {response_text}")
+                    _LOGGER.debug("Contract response: %s", response_text)
+                    raise Exception(f"Failed to get contract info: {response.status} - {response_text}")
 
-                user_data = await response.json()
-                _LOGGER.debug("User data received: %s", user_data)
+                contract_data = await response.json()
+                _LOGGER.debug("Contract data received: %s", contract_data)
 
-            # Get IP addresses
-            accounts_url = f"{self.base_url}/api/accounts"
-            _LOGGER.debug("Fetching accounts info from: %s", accounts_url)
-
-            async with self.session.get(accounts_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as accounts_response:
-                _LOGGER.debug("Accounts response status: %s", accounts_response.status)
-
-                ip_addresses = []
-                if accounts_response.status == 200:
-                    accounts_data = await accounts_response.json()
-                    _LOGGER.debug("Accounts data received: %s", accounts_data)
-
-                    # Extract IP addresses from accounts data
-                    if isinstance(accounts_data, list):
-                        ip_addresses = [account.get("ip_address") for account in accounts_data if account.get("ip_address")]
+                # Contract data is an array, get the first contract
+                if isinstance(contract_data, list) and len(contract_data) > 0:
+                    contract = contract_data[0]
                 else:
-                    _LOGGER.warning("Failed to get IP addresses: %s", accounts_response.status)
+                    contract = contract_data if isinstance(contract_data, dict) else {}
 
-            # Get bonus info
+            # Get IP addresses (try subscriber endpoint)
+            ip_addresses = []
+            try:
+                subscriber_url = f"{self.base_url}/api/user/subscriber"
+                _LOGGER.debug("Fetching subscriber info from: %s", subscriber_url)
+
+                async with self.session.get(subscriber_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as subscriber_response:
+                    _LOGGER.debug("Subscriber response status: %s", subscriber_response.status)
+
+                    if subscriber_response.status == 200:
+                        subscriber_data = await subscriber_response.json()
+                        _LOGGER.debug("Subscriber data received: %s", subscriber_data)
+                        # TODO: Extract IP addresses from subscriber data
+            except Exception as ex:
+                _LOGGER.debug("Failed to get subscriber info: %s", ex)
+
+            # Get bonus info (keep existing logic)
             bonus_url = f"{self.base_url}/api/gbonus/info"
             _LOGGER.debug("Fetching bonus info from: %s", bonus_url)
 
@@ -257,10 +278,10 @@ class MarynoNetApiClient:
             except Exception as ex:
                 _LOGGER.debug("Failed to get bonus info: %s", ex)
 
-            # Extract the required information from user_data
+            # Extract the required information from contract_data
             return {
-                "balance": float(user_data.get("balance", 0)),
-                "customer_number": str(user_data.get("number", "")),
+                "balance": 0.0,  # TODO: Find balance in contract/subscriber/product data
+                "customer_number": str(contract.get("contract_num", contract.get("contract", ""))),
                 "ip_addresses": ip_addresses,
                 "bonus_balance": float(bonus_balance),
             }
@@ -276,8 +297,9 @@ class MarynoNetApiClient:
             "accept-encoding": "gzip, deflate, br, zstd",
             "accept-language": "ru,en-US;q=0.9,en;q=0.8,bg;q=0.7",
             "dnt": "1",
+            "origin": "https://lk.maryno.net",
             "priority": "u=1, i",
-            "referer": f"{self.base_url}/info",
+            "referer": f"{self.base_url}/",
             "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"macOS"',
@@ -297,7 +319,12 @@ class MarynoNetApiClient:
 
     def _get_xsrf_token(self) -> Optional[str]:
         """Extract XSRF token from cookies."""
+        import urllib.parse
+
         for cookie in self.session.cookie_jar:
             if cookie.key == 'XSRF-TOKEN':
-                return cookie.value
+                # URL decode the token as it might be encoded in the cookie
+                decoded_token = urllib.parse.unquote(cookie.value)
+                _LOGGER.debug("Found XSRF token (raw): %s, decoded: %s", cookie.value, decoded_token)
+                return decoded_token
         return None

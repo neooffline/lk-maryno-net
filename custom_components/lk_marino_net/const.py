@@ -4,7 +4,7 @@ PLATFORMS = ["sensor"]
 SCAN_INTERVAL = 300  # 5 minutes
 
 # API endpoints (these may need to be updated based on actual API)
-# Try different possible URLs for Maryno.net customer portal
+# Try different possible URLs for maryno.net customer portal
 POSSIBLE_BASE_URLS = [
     "https://lk.maryno.net",
     "https://www.maryno.net",
@@ -15,7 +15,7 @@ POSSIBLE_BASE_URLS = [
 ]
 BASE_URL = "https://lk.maryno.net"  # Default fallback - confirmed working
 AUTH_URL = f"{BASE_URL}/auth"  # Authentication endpoint
-ACCOUNT_URL = f"{BASE_URL}/api/user/all"  # Updated to correct endpoint
+ACCOUNT_URL = f"{BASE_URL}/api/user/contract"  # Updated to correct endpoint that returns contract data
 
 # Sensor types
 SENSOR_BALANCE = "balance"

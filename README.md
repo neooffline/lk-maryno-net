@@ -1,7 +1,7 @@
 # lk-marino-net
-Home Assistant Integration for Maryno.net
+Home Assistant Integration for Marino.net
 
-This integration allows you to monitor your Maryno.net account information in Home Assistant, including:
+This integration allows you to monitor your Marino.net account information in Home Assistant, including:
 
 - Account balance
 - Customer number
@@ -13,7 +13,7 @@ This integration allows you to monitor your Maryno.net account information in Ho
 ### HACS (recommended)
 
 1. Add this repository to HACS as a custom repository
-3. Search for "LK МARYNO.net" in HACS
+2. Search for "LK MARINO.net" in HACS
 3. Install the integration
 4. Restart Home Assistant
 
@@ -26,14 +26,25 @@ This integration allows you to monitor your Maryno.net account information in Ho
 
 1. Go to Settings > Devices & Services
 2. Click "Add Integration"
-3. Search for "LK МARYNO.net"
-4. Enter your Maryno.net username and password
+3. Search for "LK MARINO.net"
+4. Enter your Marino.net username and password
 5. Optionally, disable SSL certificate verification if you encounter certificate issues
 6. Click "Submit"
 
 ### SSL Certificate Issues
 
 If you encounter SSL certificate verification errors, you can disable SSL verification in the configuration. This is common with some ISP portals that use self-signed or incorrectly configured certificates. Note that disabling SSL verification reduces security, so only do this if necessary.
+
+## Testing the Integration
+
+Before installing in Home Assistant, you can test the API client:
+
+1. Install dependencies: `pip install aiohttp`
+2. Edit `standalone_debug.py` and replace `your_contract_number` and `your_password` with your actual credentials
+3. Uncomment the last line: `success = asyncio.run(debug_auth())`
+4. Run: `python standalone_debug.py`
+
+This will show detailed debug information about the authentication process and API access.
 
 ## Sensors
 
