@@ -1,5 +1,5 @@
 """Constants for LK Марьино.net integration."""
-DOMAIN = "lk_marino_net"
+DOMAIN = "lk_maryno_net"
 PLATFORMS = ["sensor"]
 SCAN_INTERVAL = 300  # 5 minutes
 

@@ -5,7 +5,7 @@ import sys
 import os
 
 # Add the integration path to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'custom_components', 'lk_marino_net'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'custom_components', 'lk_maryno_net'))
 
 def test_imports():
     """Test that all modules can be imported."""
@@ -26,7 +26,7 @@ def test_manifest():
     """Test manifest.json structure."""
     try:
         import json
-        with open('custom_components/lk_marino_net/manifest.json', 'r') as f:
+        with open('custom_components/lk_maryno_net/manifest.json', 'r') as f:
             manifest = json.load(f)
 
         required_fields = ['domain', 'name', 'version', 'config_flow']

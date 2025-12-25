@@ -95,7 +95,7 @@ class MarynoNetApiClient:
                 _LOGGER.warning("No working base URL found, using auth domain: %s", self.base_url)
 
             # Try to access user data directly (may not require authentication)
-            test_url = f"{self.base_url}/api/user/all"
+            test_url = f"{self.base_url}/api/user/contract"
             test_headers = self._get_browser_headers()
             async with self.session.get(test_url, headers=test_headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status == 200:
@@ -190,7 +190,7 @@ class MarynoNetApiClient:
                 await asyncio.sleep(0.5)
 
                 # Verify authentication by trying to access user data with proper headers
-                test_url = f"{self.base_url}/api/user/all"
+                test_url = f"{self.base_url}/api/user/contract"
                 test_headers = self._get_browser_headers()
                 _LOGGER.debug("Testing API access with URL: %s", test_url)
                 _LOGGER.debug("Testing API access with headers: %s", test_headers)
