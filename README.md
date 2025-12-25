@@ -44,6 +44,23 @@ The integration provides the following sensors:
 - **IP Addresses**: Comma-separated list of your assigned IP addresses
 - **Bonus Balance**: Your bonus account balance in RUB
 
+### Authentication Method
+
+The integration uses cookie-based authentication:
+
+1. **Login**: POST request to `/login` with username/password
+2. **Session Cookies**: Obtains `connect.sid`, `XSRF-TOKEN`, and other session cookies
+3. **API Access**: Uses session cookies for subsequent API calls
+4. **CSRF Protection**: Includes `X-XSRF-TOKEN` header when available
+
+### API Endpoints Used
+
+The integration uses the following Maryno.net API endpoints:
+
+- **User Info**: `https://lk.maryno.net/api/user/all` - Contains balance, customer number, and account details
+- **IP Addresses**: `https://lk.maryno.net/api/accounts` - Lists all assigned IP addresses
+- **Bonus Info**: `https://lk.maryno.net/api/gbonus/info` - Bonus program information and balance
+
 ## Troubleshooting
 
 ### SSL Certificate Issues
