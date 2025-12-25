@@ -6,7 +6,6 @@ import urllib.parse
 from typing import Any, Dict, Optional
 
 import aiohttp
-from yarl import URL
 
 from .const import BASE_URL, AUTH_URL
 
@@ -20,7 +19,6 @@ class MarynoNetApiClient:
         self._authenticated = False
         self.verify_ssl = verify_ssl
         self.base_url = BASE_URL
-        self._auth_attempts = 0
 
     async def _create_session(self) -> None:
         """Create aiohttp session with persistent cookie jar."""
@@ -41,15 +39,17 @@ class MarynoNetApiClient:
         )
 
     def _get_headers(self, referer: str = None) -> Dict[str, str]:
-        """Build headers with XSRF token from session cookies."""
+        """Build headers mimicking a real browser."""
         headers = {
-            "accept": "application/json, text/plain, */*",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "origin": self.base_url,
-            "referer": referer or f"{self.base_url}/",
-            "sec-fetch-site": "same-origin",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-dest": "empty",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ru,en-US;q=0.9,en;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Origin": self.base_url,
+            "Referer": referer or f"{self.base_url}/",
+            "DNT": "1",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
         }
 
         if self.session:
@@ -59,91 +59,79 @@ class MarynoNetApiClient:
                     break
         return headers
 
-    async def _sync_session(self, path: str = "/info") -> None:
-        """Crucial step: Sync session with the server for the specific path."""
-        if not self.session:
-            return
-        
-        encoded_path = urllib.parse.quote(path, safe='')
-        sync_url = f"{self.base_url}/api/session?path={encoded_path}"
-        
-        _LOGGER.debug("Syncing session for path: %s", path)
-        async with self.session.get(sync_url, headers=self._get_headers(), timeout=10) as resp:
-            # Даже если 304 или 200, куки обновятся автоматически в jar
-            await resp.text()
-
-    async def authenticate(self) -> None:
-        """Authentication sequence with session synchronization."""
+    async def authenticate(self) -> bool:
+        """Authentication sequence."""
         await self._create_session()
+        self.session.cookie_jar.clear()
         
         try:
-            # 1. Получаем токены с главной
-            async with self.session.get(self.base_url, timeout=10) as resp:
+            # 1. Загрузка страницы входа
+            async with self.session.get(f"{self.base_url}/auth", timeout=10) as resp:
                 await resp.text()
 
             # 2. Логин
             login_data = {"username": self.username, "password": self.password}
             headers = self._get_headers(referer=f"{self.base_url}/auth")
-            headers["content-type"] = "application/json"
+            headers["Content-Type"] = "application/json"
 
             async with self.session.post(AUTH_URL, json=login_data, headers=headers, timeout=20) as resp:
                 if resp.status not in [200, 304]:
-                    text = await resp.text()
-                    raise Exception(f"Login failed ({resp.status}): {text}")
+                    return False
                 await resp.text()
 
-            # 3. Синхронизируем сессию для путей личного кабинета
-            await self._sync_session("/dashboard")
-            await self._sync_session("/info")
-            
-            _LOGGER.info("Authentication and session sync completed")
+            _LOGGER.info("Authentication basic success")
             self._authenticated = True
-            self._auth_attempts = 0 
+            return True
 
         except Exception as ex:
             _LOGGER.error("Auth process error: %s", ex)
-            self._authenticated = False
-            raise
+            return False
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Fetch data using the synchronized session."""
-        if not self._authenticated:
-            await self.authenticate()
+        """Fetch data using a loop to avoid recursion and sync session."""
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            if not self._authenticated:
+                if not await self.authenticate():
+                    raise Exception("Authentication failed")
 
-        # Перед каждым запросом данных подтверждаем путь в сессии
-        await self._sync_session("/info")
-        
-        user_url = f"{self.base_url}/api/user/all"
-        headers = self._get_headers(referer=f"{self.base_url}/info")
-        
-        try:
-            async with self.session.get(user_url, headers=headers, timeout=20) as resp:
-                if resp.status == 401:
-                    _LOGGER.warning("401 Unauthorized. Retrying auth sequence...")
-                    if self._auth_attempts < 2:
-                        self._auth_attempts += 1
+            try:
+                # ШАГ 1: Синхронизация сессии именно для /info
+                sync_url = f"{self.base_url}/api/session?path=%2Finfo"
+                async with self.session.get(sync_url, headers=self._get_headers(referer=f"{self.base_url}/info"), timeout=10) as s_resp:
+                    await s_resp.text()
+
+                # ШАГ 2: СРАЗУ запрос данных с тем же Referer
+                user_url = f"{self.base_url}/api/user/all"
+                headers = self._get_headers(referer=f"{self.base_url}/info")
+                
+                async with self.session.get(user_url, headers=headers, timeout=20) as resp:
+                    if resp.status == 401:
+                        _LOGGER.warning("401 Unauthorized on attempt %s", attempt + 1)
                         self._authenticated = False
-                        self.session.cookie_jar.clear()
-                        await self.authenticate()
-                        return await self.get_account_info()
-                    else:
-                        raise Exception("Persistent 401: Auth loop blocked.")
+                        if attempt < max_retries:
+                            await asyncio.sleep(1)
+                            continue
+                        raise Exception("Persistent 401 Unauthorized")
 
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise Exception(f"API Error ({resp.status}): {text}")
+                    if resp.status != 200:
+                        raise Exception(f"API Error: {resp.status}")
 
-                data = await resp.json()
-                user_info = data[0] if isinstance(data, list) else data
+                    data = await resp.json()
+                    user_info = data[0] if isinstance(data, list) else data
 
-                return {
-                    "balance": float(user_info.get("balance", 0.0)),
-                    "customer_number": str(user_info.get("contract_num", user_info.get("contract", "N/A"))),
-                    "bonus_balance": float(user_info.get("bonusBalance", 0.0)),
-                    "ip_addresses": [],
-                }
+                    return {
+                        "balance": float(user_info.get("balance", 0.0)),
+                        "customer_number": str(user_info.get("contract_num", user_info.get("contract", "N/A"))),
+                        "bonus_balance": float(user_info.get("bonusBalance", 0.0)),
+                        "ip_addresses": [],
+                    }
 
-        except Exception as ex:
-            _LOGGER.error("Data fetch error: %s", ex)
-            self._authenticated = False
-            raise
+            except Exception as ex:
+                if attempt < max_retries:
+                    _LOGGER.debug("Retrying due to error: %s", ex)
+                    self._authenticated = False
+                    continue
+                raise ex
+
+        raise Exception("Failed to get account info after retries")
