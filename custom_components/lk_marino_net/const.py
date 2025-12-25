@@ -6,14 +6,12 @@ SCAN_INTERVAL = 300  # 5 minutes
 # API endpoints (these may need to be updated based on actual API)
 # Try different possible URLs for Marino.net customer portal
 POSSIBLE_BASE_URLS = [
-    "https://lk.marino.net",
-    "https://www.marino.net",
-    "https://marino.net",
-    "https://lk.marinonet.ru",  # Alternative domain
-    "https://marinonet.ru",
-    "https://my.marino.net",   # Common pattern
+    "https://lk.maryno.net",
+    "https://www.maryno.net",
+    "https://maryno.net",
+          # Common pattern
 ]
-BASE_URL = "https://lk.marino.net"  # Default fallback
+BASE_URL = "https://lk.maryno.net"  # Default fallback
 LOGIN_URL = f"{BASE_URL}/login"
 ACCOUNT_URL = f"{BASE_URL}/api/account"
 
