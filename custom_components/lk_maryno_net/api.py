@@ -464,6 +464,8 @@ class MarynoNetApiClient:
         except Exception as ex:
             _LOGGER.debug("Could not check session expiration: %s", ex)
             return True  # Assume valid if we can't check
+
+    def _update_xsrf_token_from_headers(self, headers) -> None:
         """Update XSRF token from response headers."""
         import urllib.parse
         
