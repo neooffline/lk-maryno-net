@@ -380,10 +380,15 @@ class MarynoNetApiClient:
 
             # Get user info (contains all account details including balance)
             user_url = f"{self.base_url}/api/user/all"
+            
+            # Use dashboard referer for user API call
+            user_headers = headers.copy()
+            user_headers['referer'] = f"{self.base_url}/dashboard"
+            
             _LOGGER.info("Fetching user info from: %s", user_url)
-            _LOGGER.info("Using headers: %s", headers)
+            _LOGGER.info("Using headers: %s", user_headers)
 
-            async with self.session.get(user_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with self.session.get(user_url, headers=user_headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 _LOGGER.info("User response status: %s", response.status)
                 _LOGGER.debug("Response headers: %s", dict(response.headers))
 
