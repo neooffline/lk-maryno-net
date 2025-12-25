@@ -341,15 +341,8 @@ class MarynoNetApiClient:
                     token_value = part.strip().split('=', 1)[1]
                     decoded_token = urllib.parse.unquote(token_value)
                     
-                    # Update the cookie in the session jar
-                    for cookie in self.session.cookie_jar:
-                        if cookie.key == 'XSRF-TOKEN':
-                            cookie.value = token_value
-                            _LOGGER.info("Updated XSRF token from headers: %s", decoded_token)
-                            return
-                    
-                    # If token not found in jar, add it
+                    # Update the cookie using update_cookies method
                     base_url = URL(self.base_url)
                     self.session.cookie_jar.update_cookies({'XSRF-TOKEN': token_value}, base_url)
-                    _LOGGER.info("Added new XSRF token from headers: %s", decoded_token)
-                    break
+                    _LOGGER.info("Updated XSRF token from headers: %s", decoded_token)
+                    return
