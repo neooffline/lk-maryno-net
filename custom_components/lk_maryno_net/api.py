@@ -59,27 +59,51 @@ class MarynoNetApiClient:
                     break
         return headers
 
+    async def _api_call(self, method: str, path: str, referer_path: str, data: dict = None):
+        """Helper for API calls with session sync."""
+        # 1. Сначала синхронизируем путь в сессии
+        encoded_path = urllib.parse.quote(referer_path, safe='')
+        sync_url = f"{self.base_url}/api/session?path={encoded_path}"
+        async with self.session.get(sync_url, headers=self._get_headers(referer=f"{self.base_url}{referer_path}")) as s_resp:
+            await s_resp.text()
+
+        # 2. Делаем сам запрос
+        url = f"{self.base_url}{path}"
+        headers = self._get_headers(referer=f"{self.base_url}{referer_path}")
+        
+        if method == "POST":
+            headers["Content-Type"] = "application/json"
+            async with self.session.post(url, json=data, headers=headers, timeout=20) as resp:
+                return resp
+        else:
+            async with self.session.get(url, headers=headers, timeout=20) as resp:
+                return resp
+
     async def authenticate(self) -> bool:
-        """Authentication sequence."""
+        """Authentication sequence based on browser behavior."""
         await self._create_session()
         self.session.cookie_jar.clear()
         
         try:
-            # 1. Загрузка страницы входа
+            # 1. Начальная страница
             async with self.session.get(f"{self.base_url}/auth", timeout=10) as resp:
                 await resp.text()
 
-            # 2. Логин
+            # 2. Логин (POST)
             login_data = {"username": self.username, "password": self.password}
             headers = self._get_headers(referer=f"{self.base_url}/auth")
             headers["Content-Type"] = "application/json"
-
             async with self.session.post(AUTH_URL, json=login_data, headers=headers, timeout=20) as resp:
                 if resp.status not in [200, 304]:
                     return False
                 await resp.text()
 
-            _LOGGER.info("Authentication basic success")
+            # 3. КЛЮЧЕВОЙ ШАГ: Запрос контракта (как в браузере)
+            # Это инициализирует пользовательский контекст на сервере
+            contract_resp = await self._api_call("GET", "/api/user/contract", "/contract")
+            await contract_resp.text()
+            
+            _LOGGER.info("Authentication and contract initialization success")
             self._authenticated = True
             return True
 
@@ -88,7 +112,7 @@ class MarynoNetApiClient:
             return False
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Fetch data using a loop to avoid recursion and sync session."""
+        """Fetch account data using full session flow."""
         max_retries = 2
         for attempt in range(max_retries + 1):
             if not self._authenticated:
@@ -96,42 +120,36 @@ class MarynoNetApiClient:
                     raise Exception("Authentication failed")
 
             try:
-                # ШАГ 1: Синхронизация сессии именно для /info
-                sync_url = f"{self.base_url}/api/session?path=%2Finfo"
-                async with self.session.get(sync_url, headers=self._get_headers(referer=f"{self.base_url}/info"), timeout=10) as s_resp:
-                    await s_resp.text()
-
-                # ШАГ 2: СРАЗУ запрос данных с тем же Referer
-                user_url = f"{self.base_url}/api/user/all"
-                headers = self._get_headers(referer=f"{self.base_url}/info")
+                # 1. "Заходим" на dashboard (синхронизация)
+                await self._api_call("GET", "/api/session?path=%2Fdashboard", "/dashboard")
                 
-                async with self.session.get(user_url, headers=headers, timeout=20) as resp:
-                    if resp.status == 401:
-                        _LOGGER.warning("401 Unauthorized on attempt %s", attempt + 1)
-                        self._authenticated = False
-                        if attempt < max_retries:
-                            await asyncio.sleep(1)
-                            continue
-                        raise Exception("Persistent 401 Unauthorized")
+                # 2. Запрашиваем данные с контекстом /info
+                resp = await self._api_call("GET", "/api/user/all", "/info")
+                
+                if resp.status == 401:
+                    _LOGGER.warning("401 Unauthorized on attempt %s", attempt + 1)
+                    self._authenticated = False
+                    if attempt < max_retries:
+                        continue
+                    raise Exception("Persistent 401")
 
-                    if resp.status != 200:
-                        raise Exception(f"API Error: {resp.status}")
+                if resp.status != 200:
+                    raise Exception(f"API Error: {resp.status}")
 
-                    data = await resp.json()
-                    user_info = data[0] if isinstance(data, list) else data
+                data = await resp.json()
+                user_info = data[0] if isinstance(data, list) else data
 
-                    return {
-                        "balance": float(user_info.get("balance", 0.0)),
-                        "customer_number": str(user_info.get("contract_num", user_info.get("contract", "N/A"))),
-                        "bonus_balance": float(user_info.get("bonusBalance", 0.0)),
-                        "ip_addresses": [],
-                    }
+                return {
+                    "balance": float(user_info.get("balance", 0.0)),
+                    "customer_number": str(user_info.get("contract_num", user_info.get("contract", "N/A"))),
+                    "bonus_balance": float(user_info.get("bonusBalance", 0.0)),
+                    "ip_addresses": [],
+                }
 
             except Exception as ex:
                 if attempt < max_retries:
-                    _LOGGER.debug("Retrying due to error: %s", ex)
                     self._authenticated = False
                     continue
                 raise ex
 
-        raise Exception("Failed to get account info after retries")
+        raise Exception("Failed to get info after retries")
