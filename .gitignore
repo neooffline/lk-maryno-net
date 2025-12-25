@@ -208,3 +208,5 @@ __marimo__/
 standalone_debug.py
 response.html
 main_page.html
+test_api.py
+stand_alone_debug.py
