@@ -8,8 +8,8 @@
           "verify_ssl": "Проверять SSL сертификат"
         },
         "data_description": {
-          "username": "Ваше имя пользователя Marino.net",
-          "password": "Ваш пароль Marino.net",
+          "username": "Ваше имя пользователя Марьино.net",
+          "password": "Ваш пароль Марьино.net",
           "verify_ssl": "Проверять SSL сертификат (отключите при проблемах с сертификатом)"
         }
       }

@@ -18,7 +18,7 @@ from .const import (
     SENSOR_CUSTOMER_NUMBER,
     SENSOR_IP_ADDRESSES,
 )
-from .coordinator import MarinoNetDataUpdateCoordinator
+from .coordinator import MarynoNetDataUpdateCoordinator
 
 
 async def async_setup_entry(
@@ -30,19 +30,19 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities = [
-        MarinoNetBalanceSensor(coordinator),
-        MarinoNetCustomerNumberSensor(coordinator),
-        MarinoNetBonusBalanceSensor(coordinator),
-        MarinoNetIpAddressesSensor(coordinator),
+        MarynoNetBalanceSensor(coordinator),
+        MarynoNetCustomerNumberSensor(coordinator),
+        MarynoNetBonusBalanceSensor(coordinator),
+        MarynoNetIpAddressesSensor(coordinator),
     ]
 
     async_add_entities(entities)
 
 
-class MarinoNetSensor(CoordinatorEntity, SensorEntity):
-    """Base sensor for Marino.net."""
+class MarynoNetSensor(CoordinatorEntity, SensorEntity):
+    """Base sensor for Maryno.net."""
 
-    def __init__(self, coordinator: MarinoNetDataUpdateCoordinator) -> None:
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._attr_device_info = {
@@ -53,7 +53,7 @@ class MarinoNetSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class MarinoNetBalanceSensor(MarinoNetSensor):
+class MarynoNetBalanceSensor(MarynoNetSensor):
     """Balance sensor."""
 
     _attr_name = "Balance"
@@ -68,7 +68,7 @@ class MarinoNetBalanceSensor(MarinoNetSensor):
         return self.coordinator.data.get("balance", 0)
 
 
-class MarinoNetCustomerNumberSensor(MarinoNetSensor):
+class MarynoNetCustomerNumberSensor(MarynoNetSensor):
     """Customer number sensor."""
 
     _attr_name = "Customer Number"
@@ -80,7 +80,7 @@ class MarinoNetCustomerNumberSensor(MarinoNetSensor):
         return self.coordinator.data.get("customer_number", "")
 
 
-class MarinoNetBonusBalanceSensor(MarinoNetSensor):
+class MarynoNetBonusBalanceSensor(MarynoNetSensor):
     """Bonus balance sensor."""
 
     _attr_name = "Bonus Balance"
@@ -95,7 +95,7 @@ class MarinoNetBonusBalanceSensor(MarinoNetSensor):
         return self.coordinator.data.get("bonus_balance", 0)
 
 
-class MarinoNetIpAddressesSensor(MarinoNetSensor):
+class MarynoNetIpAddressesSensor(MarynoNetSensor):
     """IP addresses sensor."""
 
     _attr_name = "IP Addresses"

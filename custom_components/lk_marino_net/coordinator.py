@@ -5,16 +5,16 @@ import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import MarinoNetApiClient
+from .api import MarynoNetApiClient
 from .const import DOMAIN, SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class MarinoNetDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching data from Marino.net."""
+class MarynoNetDataUpdateCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching data from Maryno.net."""
 
-    def __init__(self, hass: HomeAssistant, api_client: MarinoNetApiClient) -> None:
+    def __init__(self, hass: HomeAssistant, api_client: MarynoNetApiClient) -> None:
         """Initialize."""
         super().__init__(
             hass,

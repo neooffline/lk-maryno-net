@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
-from .api import MarinoNetApiClient
+from .api import MarynoNetApiClient
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 # Test the credentials
-                api_client = MarinoNetApiClient(
+                api_client = MarynoNetApiClient(
                     username=user_input["username"],
                     password=user_input["password"],
                     verify_ssl=user_input.get("verify_ssl", True),

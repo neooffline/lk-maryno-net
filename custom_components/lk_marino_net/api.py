@@ -1,4 +1,4 @@
-"""API client for Marino.net."""
+"""API client for Maryno.net."""
 import asyncio
 import logging
 import ssl
@@ -11,8 +11,8 @@ from .const import ACCOUNT_URL, BASE_URL, LOGIN_URL, POSSIBLE_BASE_URLS
 _LOGGER = logging.getLogger(__name__)
 
 
-class MarinoNetApiClient:
-    """API client for Marino.net customer portal.
+class MarynoNetApiClient:
+    """API client for Maryno.net customer portal.
 
     Note: This implementation handles SSL certificate issues that may occur
     with some ISP portals. SSL verification can be disabled if necessary.
@@ -78,7 +78,8 @@ class MarinoNetApiClient:
         return None
 
     async def authenticate(self) -> None:
-        """Authenticate with Marino.net."""
+    async def authenticate(self) -> None:
+        """Authenticate with Maryno.net."""
         if not self.session:
             await self._create_session()
 
@@ -119,7 +120,7 @@ class MarinoNetApiClient:
 
         try:
             # This is a placeholder implementation
-            # Actual implementation will depend on Marino.net's authentication method
+            # Actual implementation will depend on Maryno.net's authentication method
 
             # For REST API approach:
             auth_data = {
@@ -141,7 +142,7 @@ class MarinoNetApiClient:
                     raise Exception("Invalid credentials")
 
             self._authenticated = True
-            _LOGGER.info("Successfully authenticated with Marino.net at %s", self.base_url)
+            _LOGGER.info("Successfully authenticated with Maryno.net at %s", self.base_url)
 
         except Exception as ex:
             _LOGGER.error("Authentication failed: %s", ex)

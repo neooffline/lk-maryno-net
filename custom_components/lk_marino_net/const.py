@@ -4,12 +4,14 @@ PLATFORMS = ["sensor"]
 SCAN_INTERVAL = 300  # 5 minutes
 
 # API endpoints (these may need to be updated based on actual API)
-# Try different possible URLs for Marino.net customer portal
+# Try different possible URLs for Maryno.net customer portal
 POSSIBLE_BASE_URLS = [
     "https://lk.maryno.net",
     "https://www.maryno.net",
     "https://maryno.net",
-          # Common pattern
+    "https://lk.marynunet.ru",  # Alternative domain
+    "https://marynunet.ru",
+    "https://my.maryno.net",   # Common pattern
 ]
 BASE_URL = "https://lk.maryno.net"  # Default fallback
 LOGIN_URL = f"{BASE_URL}/login"

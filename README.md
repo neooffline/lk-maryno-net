@@ -1,7 +1,7 @@
 # lk-marino-net
-Home Assistant Integration for Marino.net
+Home Assistant Integration for Maryno.net
 
-This integration allows you to monitor your Marino.net account information in Home Assistant, including:
+This integration allows you to monitor your Maryno.net account information in Home Assistant, including:
 
 - Account balance
 - Customer number
@@ -13,7 +13,7 @@ This integration allows you to monitor your Marino.net account information in Ho
 ### HACS (recommended)
 
 1. Add this repository to HACS as a custom repository
-2. Search for "LK Марьино.net" in HACS
+3. Search for "LK МARYNO.net" in HACS
 3. Install the integration
 4. Restart Home Assistant
 
@@ -26,8 +26,8 @@ This integration allows you to monitor your Marino.net account information in Ho
 
 1. Go to Settings > Devices & Services
 2. Click "Add Integration"
-3. Search for "LK Марьино.net"
-4. Enter your Marino.net username and password
+3. Search for "LK МARYNO.net"
+4. Enter your Maryno.net username and password
 5. Optionally, disable SSL certificate verification if you encounter certificate issues
 6. Click "Submit"
 
@@ -54,7 +54,7 @@ If you encounter SSL certificate verification errors, try:
 
 ### Connection Issues
 
-The integration automatically tries multiple possible URLs for the Marino.net customer portal:
+The integration automatically tries multiple possible URLs for the Maryno.net customer portal:
 - `https://lk.marino.net`
 - `https://www.marino.net`
 - `https://marino.net`

@@ -8,8 +8,8 @@
           "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
-          "username": "Your Marino.net username",
-          "password": "Your Marino.net password",
+          "username": "Your Maryno.net username",
+          "password": "Your Maryno.net password",
           "verify_ssl": "Verify SSL certificate (disable if you have certificate issues)"
         }
       }
