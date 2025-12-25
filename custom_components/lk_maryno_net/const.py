@@ -15,7 +15,7 @@ POSSIBLE_BASE_URLS = [
 ]
 BASE_URL = "https://lk.maryno.net"  # Default fallback - confirmed working
 AUTH_URL = f"{BASE_URL}/auth"  # Authentication endpoint
-ACCOUNT_URL = f"{BASE_URL}/api/user/contract"  # Updated to correct endpoint that returns contract data
+ACCOUNT_URL = f"{BASE_URL}/api/user/all"  # Updated to correct endpoint that returns all user data including balance
 
 # Sensor types
 SENSOR_BALANCE = "balance"

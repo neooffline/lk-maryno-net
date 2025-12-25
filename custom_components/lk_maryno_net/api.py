@@ -223,94 +223,54 @@ class MarynoNetApiClient:
         headers = self._get_browser_headers()
 
         try:
-            # Get contract info (contains customer number and other details)
-            contract_url = f"{self.base_url}/api/user/contract"
-            _LOGGER.debug("Fetching contract info from: %s", contract_url)
+            # Get user info (contains all account details including balance)
+            user_url = f"{self.base_url}/api/user/all"
+            _LOGGER.debug("Fetching user info from: %s", user_url)
             _LOGGER.debug("Using headers: %s", headers)
 
-            async with self.session.get(contract_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                _LOGGER.debug("Contract response status: %s", response.status)
+            async with self.session.get(user_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                _LOGGER.debug("User response status: %s", response.status)
                 _LOGGER.debug("Response headers: %s", dict(response.headers))
 
-                if response.status != 200:
+                if response.status not in [200,304]:
                     response_text = await response.text()
-                    _LOGGER.debug("Contract response: %s", response_text)
-                    raise Exception(f"Failed to get contract info: {response.status} - {response_text}")
+                    _LOGGER.debug("User response: %s", response_text)
+                    raise Exception(f"Failed to get user info: {response.status} - {response_text}")
 
-                contract_data = await response.json()
-                _LOGGER.debug("Contract data received: %s", contract_data)
-
-                # Contract data is an array, get the first contract
-                if isinstance(contract_data, list) and len(contract_data) > 0:
-                    contract = contract_data[0]
-                else:
-                    contract = contract_data if isinstance(contract_data, dict) else {}
+                user_data = await response.json()
+                _LOGGER.debug("User data received: %s", user_data)
 
                 # Extract customer number
-                customer_number = str(contract.get("contract_num", contract.get("contract", "")))
+                customer_number = str(user_data.get("contract_num", user_data.get("contract", "")))
                 _LOGGER.debug("Extracted customer number: %s", customer_number)
 
-            # Get IP addresses (try subscriber endpoint)
+                # Extract balance
+                balance = float(user_data.get("balance", 0.0))
+                _LOGGER.debug("Extracted balance: %s", balance)
+
+                # Extract bonus balance
+                bonus_balance = float(user_data.get("bonusBalance", 0.0))
+                _LOGGER.debug("Extracted bonus balance: %s", bonus_balance)
+
+            # Get IP addresses (try subscriber endpoint) - keeping this separate as it might have different data
             ip_addresses = []
-            balance = 0.0
             try:
-                subscriber_url = f"{self.base_url}/api/user/subscriber"
+                subscriber_url = f"{self.base_url}/api/acoount"
                 _LOGGER.debug("Fetching subscriber info from: %s", subscriber_url)
 
                 async with self.session.get(subscriber_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as subscriber_response:
-                    _LOGGER.debug("Subscriber response status: %s", subscriber_response.status)
+                    _LOGGER.info("Subscriber response status: %s", subscriber_response.status)
 
-                    if subscriber_response.status == 200:
+                    if subscriber_response.status in [200, 304]:
                         subscriber_data = await subscriber_response.json()
-                        _LOGGER.debug("Subscriber data received: %s", subscriber_data)
-                        
-                        # Try to extract balance from subscriber data
-                        if isinstance(subscriber_data, dict):
-                            balance = subscriber_data.get("balance", subscriber_data.get("account_balance", 0.0))
-                        elif isinstance(subscriber_data, list) and len(subscriber_data) > 0:
-                            balance = subscriber_data[0].get("balance", subscriber_data[0].get("account_balance", 0.0))
+                        _LOGGER.info("Subscriber data received: %s", subscriber_data)
                         
                         # Extract IP addresses if available
                         # TODO: Parse IP addresses from subscriber data structure
             except Exception as ex:
-                _LOGGER.debug("Failed to get subscriber info: %s", ex)
+                _LOGGER.error("Failed to get subscriber info: %s", ex)
 
-            # Try to get balance from dedicated balance endpoint
-            try:
-                balance_url = f"{self.base_url}/api/user/balance"
-                _LOGGER.debug("Fetching balance info from: %s", balance_url)
-
-                async with self.session.get(balance_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as balance_response:
-                    _LOGGER.debug("Balance response status: %s", balance_response.status)
-
-                    if balance_response.status == 200:
-                        balance_data = await balance_response.json()
-                        _LOGGER.debug("Balance data received: %s", balance_data)
-                        
-                        if isinstance(balance_data, dict):
-                            balance = balance_data.get("balance", balance_data.get("amount", balance))
-                        elif isinstance(balance_data, (int, float)):
-                            balance = float(balance_data)
-            except Exception as ex:
-                _LOGGER.debug("Failed to get balance info: %s", ex)
-
-            # Get bonus info (keep existing logic)
-            bonus_url = f"{self.base_url}/api/gbonus/info"
-            _LOGGER.debug("Fetching bonus info from: %s", bonus_url)
-
-            bonus_balance = 0
-            try:
-                async with self.session.get(bonus_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as bonus_response:
-                    _LOGGER.debug("Bonus response status: %s", bonus_response.status)
-
-                    if bonus_response.status == 200:
-                        bonus_data = await bonus_response.json()
-                        _LOGGER.debug("Bonus data received: %s", bonus_data)
-                        bonus_balance = bonus_data.get("n_bonus", 0)
-            except Exception as ex:
-                _LOGGER.debug("Failed to get bonus info: %s", ex)
-
-            # Extract the required information from contract_data
+            # Extract the required information from user_data
             return {
                 "balance": float(balance),
                 "customer_number": customer_number,
