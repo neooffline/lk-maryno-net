@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "Имя пользователя",
+          "password": "Пароль"
+        },
+        "data_description": {
+          "username": "Ваше имя пользователя Marino.net",
+          "password": "Ваш пароль Marino.net"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Неверное имя пользователя или пароль"
+    },
+    "abort": {
+      "already_configured": "Аккаунт уже настроен"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        },
+        "data_description": {
+          "username": "Your Marino.net username",
+          "password": "Your Marino.net password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  }
+}
