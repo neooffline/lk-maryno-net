@@ -37,27 +37,33 @@ class MarynoNetApiClient:
         self.session = aiohttp.ClientSession(connector=connector)
 
     async def authenticate(self) -> None:
-        """Процесс авторизации."""
+        """Полноценная процедура авторизации с 'прогревом' сессии."""
         await self._create_session()
         
         try:
-            # 1. Заходим на страницу логина, чтобы получить начальные куки (XSRF)
+            # 1. ШАГ: 'Прогрев'. Заходим на login, чтобы получить ПЕРВЫЙ XSRF-TOKEN
+            _LOGGER.debug("Pre-warming session...")
             async with self.session.get(f"{self.base_url}/login/", timeout=10) as resp:
-                await resp.text()
+                await resp.text() # Ждем загрузки
 
-            # 2. POST запрос на авторизацию
-            auth_url = f"{self.base_url}/auth"
+            # 2. ШАГ: Логин. 
+            # Теперь у нас в self.session.cookie_jar точно есть XSRF-TOKEN
+            headers = self._get_headers()
             login_data = {"username": self.username, "password": self.password}
             
-            # Обновляем заголовки (теперь там должен быть XSRF из шага 1)
-            headers = self._get_headers()
-            
-            async with self.session.post(auth_url, json=login_data, headers=headers, timeout=20) as resp:
-                if resp.status not in [200, 304]:
+            _LOGGER.info("Sending auth request for user: %s", self.username)
+            async with self.session.post(
+                f"{self.base_url}/auth", 
+                json=login_data, 
+                headers=headers, 
+                timeout=20
+            ) as resp:
+                if resp.status not in [200, 201, 204, 304]:
                     text = await resp.text()
                     raise Exception(f"Login failed ({resp.status}): {text}")
                 
-                _LOGGER.info("Successfully authenticated")
+                # После логина сервер может обновить XSRF-TOKEN, это нормально
+                _LOGGER.info("Successfully authenticated, with headers: %s", resp.headers)
                 self._authenticated = True
                 self._auth_attempts = 0
 
@@ -65,23 +71,29 @@ class MarynoNetApiClient:
             _LOGGER.error("Authentication error: %s", ex)
             self._authenticated = False
             raise
-    
+
     def _get_headers(self) -> Dict[str, str]:
-        """Формирование заголовков с корректным декодированием XSRF-токена."""
+        """Формирование заголовков. Важно: X-Xsrf-Token должен быть в каждом запросе."""
         headers = {
             "accept": "application/json, text/plain, */*",
+            "content-type": "application/json",
             "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "origin": self.base_url,
-            "referer": f"{self.base_url}/login/", # Важно: имитируем нахождение на странице логина
+            "referer": f"{self.base_url}/login/",
         }
 
-        if self.session:
-            for cookie in self.session.cookie_jar:
-                if cookie.key == 'XSRF-TOKEN':
-                    # Критически важно: декодируем токен из куки перед вставкой в заголовок
-                    # Например, из 'abc%3D' превращаем в 'abc='
-                    headers['x-xsrf-token'] = urllib.parse.unquote(cookie.value)
-                    break
+        # Ищем токен в куках
+        token = None
+        for cookie in self.session.cookie_jar:
+            if cookie.key == 'XSRF-TOKEN':
+                token = urllib.parse.unquote(cookie.value)
+                break
+        
+        if token:
+            headers['X-XSRF-TOKEN'] = token
+            # В последних версиях Maryno может требоваться и заглавный вариант
+            # headers['X-XSRF-TOKEN'] = token 
+        _LOGGER.info("Using headers: %s", headers)
         return headers
 
     async def get_account_info(self) -> Dict[str, Any]:
