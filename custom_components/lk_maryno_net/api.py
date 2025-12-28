@@ -4,9 +4,11 @@ import logging
 import ssl
 import urllib.parse
 from typing import Any, Dict, Optional
-import aiohttp
 
-from .const import BASE_URL, AUTH_URL
+import aiohttp
+from yarl import URL
+
+from .const import BASE_URL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,25 +35,41 @@ class MarynoNetApiClient:
             conn_kwargs["ssl"] = ssl_context
 
         connector = aiohttp.TCPConnector(**conn_kwargs)
-        # CookieJar автоматически сохраняет XSRF-TOKEN и connect.sid
+        # CookieJar будет автоматически хранить XSRF-TOKEN и connect.sid
         self.session = aiohttp.ClientSession(connector=connector)
 
+    def _get_headers(self) -> Dict[str, str]:
+        """Формирование заголовков с актуальным XSRF токеном."""
+        headers = {
+            "accept": "application/json, text/plain, */*",
+            "content-type": "application/json",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "origin": self.base_url,
+            "referer": f"{self.base_url}/",
+        }
+
+        if self.session:
+            for cookie in self.session.cookie_jar:
+                if cookie.key == 'XSRF-TOKEN':
+                    # Важно: декодируем токен (убираем %3D и прочее)
+                    headers['x-xsrf-token'] = urllib.parse.unquote(cookie.value)
+                    break
+        return headers
+
     async def authenticate(self) -> None:
-        """Полноценная процедура авторизации с 'прогревом' сессии."""
+        """Процесс авторизации с предварительным получением токена."""
         await self._create_session()
         
         try:
-            # 1. ШАГ: 'Прогрев'. Заходим на login, чтобы получить ПЕРВЫЙ XSRF-TOKEN
-            _LOGGER.debug("Pre-warming session...")
+            # 1. Заходим на страницу логина для получения начальных кук
             async with self.session.get(f"{self.base_url}/login/", timeout=10) as resp:
-                await resp.text() # Ждем загрузки
+                await resp.text()
 
-            # 2. ШАГ: Логин. 
-            # Теперь у нас в self.session.cookie_jar точно есть XSRF-TOKEN
-            headers = self._get_headers()
+            # 2. Отправляем учетные данные
             login_data = {"username": self.username, "password": self.password}
+            headers = self._get_headers()
             
-            _LOGGER.info("Sending auth request for user: %s", self.username)
+            _LOGGER.info("Authenticating user %s...", self.username)
             async with self.session.post(
                 f"{self.base_url}/auth", 
                 json=login_data, 
@@ -62,82 +80,87 @@ class MarynoNetApiClient:
                     text = await resp.text()
                     raise Exception(f"Login failed ({resp.status}): {text}")
                 
-                # После логина сервер может обновить XSRF-TOKEN, это нормально
-                _LOGGER.info("Successfully authenticated, with headers: %s", resp.headers)
+                # Даем сессии время обновить куки (токен меняется после логина)
+                await asyncio.sleep(0.5)
+                
                 self._authenticated = True
                 self._auth_attempts = 0
+                _LOGGER.info("Successfully authenticated")
 
         except Exception as ex:
             _LOGGER.error("Authentication error: %s", ex)
             self._authenticated = False
             raise
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Формирование заголовков. Важно: X-Xsrf-Token должен быть в каждом запросе."""
-        headers = {
-            "accept": "application/json, text/plain, */*",
-            "content-type": "application/json",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "origin": self.base_url,
-            "referer": f"{self.base_url}/login/",
-        }
-
-        # Ищем токен в куках
-        token = None
-        for cookie in self.session.cookie_jar:
-            if cookie.key == 'XSRF-TOKEN':
-                token = urllib.parse.unquote(cookie.value)
-                break
-        
-        if token:
-            headers['X-XSRF-TOKEN'] = token
-            # В последних версиях Maryno может требоваться и заглавный вариант
-            # headers['X-XSRF-TOKEN'] = token 
-        _LOGGER.info("Using headers: %s", headers)
-        return headers
-
     async def get_account_info(self) -> Dict[str, Any]:
-        """Последовательное получение данных с проверкой редиректа."""
+        """Получение данных по цепочке: Contract -> Subscriber -> Product."""
         if not self._authenticated:
             await self.authenticate()
 
         try:
-            # ШАГ 1: Контракт (contract_id)
-            # Мы вызываем _get_headers() заново для каждого запроса, чтобы токен был свежим
-            async with self.session.get(f"{self.base_url}/api/user/contract", headers=self._get_headers()) as resp:
-                # Если сервер ответил HTML-страницей, значит нас выкинуло на логин
+            # ШАГ 1: Получаем Contract ID
+            async with self.session.get(
+                f"{self.base_url}/api/user/contract", 
+                headers=self._get_headers(),
+                timeout=20
+            ) as resp:
+                # Если получили HTML вместо JSON - сессия слетела
                 if "text/html" in resp.headers.get("Content-Type", ""):
-                    _LOGGER.warning("Session dropped (HTML received). Attempting re-auth...")
+                    _LOGGER.warning("Session lost (HTML received). Retrying...")
                     self._authenticated = False
-                    await self.authenticate()
                     return await self.get_account_info()
 
                 contracts = await resp.json()
-                contract = contracts[0] if isinstance(contracts, list) and contracts else contracts
+                if not contracts:
+                    raise Exception("No contracts found")
+                
+                contract = contracts[0] if isinstance(contracts, list) else contracts
                 c_id = contract.get("contract_id")
-                c_num = contract.get("contract_num")
+                c_num = contract.get("contract_num", "N/A")
 
-            # ШАГ 2: Абонент (subscriber_id)
-            # На скриншоте 00.21.29.jpg видно, что subscriber возвращает массив объектов
-            async with self.session.get(f"{self.base_url}/api/user/subscriber/{c_id}", headers=self._get_headers()) as resp:
+            # ШАГ 2: Получаем Subscriber ID (используя contract_id)
+            async with self.session.get(
+                f"{self.base_url}/api/user/subscriber/{c_id}", 
+                headers=self._get_headers(),
+                timeout=20
+            ) as resp:
                 subs = await resp.json()
-                sub = subs[0] if isinstance(subs, list) and subs else subs
+                sub = subs[0] if isinstance(subs, list) else subs
                 s_id = sub.get("subscriber_id")
 
-            # ШАГ 3: Баланс (product)
-            # Скриншоты 23.30.42.jpg и 23.30.44.jpg подтверждают, что баланс здесь
-            async with self.session.get(f"{self.base_url}/api/user/product/{s_id}", headers=self._get_headers()) as resp:
+            # ШАГ 3: Получаем баланс из Product (используя subscriber_id)
+            async with self.session.get(
+                f"{self.base_url}/api/user/product/{s_id}", 
+                headers=self._get_headers(),
+                timeout=20
+            ) as resp:
                 products = await resp.json()
-                _LOGGER.info("Final product data: %s", products)
+                _LOGGER.debug("Financial data: %s", products)
                 
-                prod = products[0] if isinstance(products, list) and products else products
+                # Баланс обычно в первом объекте списка
+                prod = products[0] if isinstance(products, list) else products
                 
+                # Пытаемся достать баланс из разных возможных полей
+                balance = prod.get("balance", 0.0)
+                bonus = prod.get("bonus_balance", prod.get("bonusBalance", 0.0))
+
                 return {
-                    "balance": float(prod.get("balance", 0.0)),
+                    "balance": float(balance),
                     "customer_number": str(c_num),
-                    "bonus_balance": float(prod.get("bonus_balance", 0.0)),
+                    "bonus_balance": float(bonus),
+                    "ip_addresses": [],
                 }
 
         except Exception as ex:
-            _LOGGER.error("Data sequence failed: %s", ex)
+            _LOGGER.error("Failed to fetch account info: %s", ex)
+            # Если это первая ошибка, пробуем переавторизоваться один раз
+            if self._auth_attempts == 0:
+                self._auth_attempts += 1
+                self._authenticated = False
+                return await self.get_account_info()
             raise
+
+    async def close(self) -> None:
+        """Закрытие сессии."""
+        if self.session:
+            await self.session.close()
