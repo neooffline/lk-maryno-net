@@ -84,37 +84,53 @@ class MarynoNetApiClient:
             raise
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Получение данных аккаунта через API."""
+        """Получение детальных данных аккаунта."""
         if not self._authenticated:
             await self.authenticate()
 
-        # Судя по скриншоту 'contract', именно этот эндпоинт дает баланс
-        url = f"{self.base_url}/api/user/contract"
         headers = self._get_headers()
         
         try:
-            async with self.session.get(url, headers=headers, timeout=20) as resp:
+            # Шаг 1: Получаем ID контракта
+            contract_url = f"{self.base_url}/api/user/contract"
+            async with self.session.get(contract_url, headers=headers, timeout=20) as resp:
                 if resp.status == 401:
-                    _LOGGER.warning("Session expired, re-authenticating...")
                     self._authenticated = False
                     return await self.get_account_info()
+                
+                contract_data = await resp.json()
+                # Берем первый контракт из списка
+                contract = contract_data[0] if isinstance(contract_data, list) else contract_data
+                contract_id = contract.get("contract_id")
+                contract_num = contract.get("contract_num", "N/A")
 
+            # Шаг 2: Запрашиваем данные абонента (где обычно лежит баланс)
+            # Судя по скриншоту, путь выглядит как /api/user/subscriber/ID
+            sub_url = f"{self.base_url}/api/user/subscriber/{contract_id}"
+            _LOGGER.debug("Fetching subscriber info from: %s", sub_url)
+            
+            async with self.session.get(sub_url, headers=headers, timeout=20) as resp:
                 if resp.status != 200:
-                    raise Exception(f"API error: {resp.status}")
+                    _LOGGER.error("Failed to fetch subscriber data: %s", resp.status)
+                    return {
+                        "balance": 0.0,
+                        "customer_number": contract_num,
+                        "bonus_balance": 0.0,
+                    }
+                
+                sub_data = await resp.json()
+                _LOGGER.info("Subscriber data received: %s", sub_data)
+                
+                # Если приходит список, берем первый элемент
+                info = sub_data[0] if isinstance(sub_data, list) else sub_data
 
-                data = await resp.json()
-                _LOGGER.info("Account data received: %s", data)
-                # Обычно API возвращает список контрактов
-                contract = data[0] if isinstance(data, list) and len(data) > 0 else data
-
-                # Сопоставляем поля из ответа API (уточнены по скриншотам)
                 return {
-                    "balance": float(contract.get("balance", 0.0)),
-                    "customer_number": str(contract.get("contract_num", "Н/Д")),
-                    "bonus_balance": float(contract.get("bonus_balance", 0.0)),
-                    "status": contract.get("status", "Unknown")
+                    "balance": float(info.get("balance", 0.0)),
+                    "customer_number": str(contract_num),
+                    "bonus_balance": float(info.get("bonus_balance", info.get("bonusBalance", 0.0))),
+                    "ip_addresses": [],
                 }
 
         except Exception as ex:
-            _LOGGER.error("Failed to fetch account info: %s", ex)
+            _LOGGER.error("Data fetch error: %s", ex)
             raise
