@@ -103,7 +103,7 @@ class MarynoNetApiClient:
                     raise Exception(f"API error: {resp.status}")
 
                 data = await resp.json()
-                
+                _LOGGER.info("Account data received: %s", data)
                 # Обычно API возвращает список контрактов
                 contract = data[0] if isinstance(data, list) and len(data) > 0 else data
 
