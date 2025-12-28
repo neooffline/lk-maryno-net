@@ -84,53 +84,60 @@ class MarynoNetApiClient:
             raise
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Получение детальных данных аккаунта."""
+        """Последовательное получение данных: contract -> subscriber -> product."""
         if not self._authenticated:
             await self.authenticate()
 
         headers = self._get_headers()
-        
+        # Важно для API
+        headers["accept"] = "application/json, text/plain, */*"
+        headers["referer"] = f"{self.base_url}/"
+
         try:
-            # Шаг 1: Получаем ID контракта
-            contract_url = f"{self.base_url}/api/user/contract"
-            async with self.session.get(contract_url, headers=headers, timeout=20) as resp:
-                if resp.status == 401:
+            # ШАГ 1: Получаем ID контракта
+            async with self.session.get(f"{self.base_url}/api/user/contract", headers=headers) as resp:
+                if "text/html" in resp.headers.get("Content-Type", ""):
+                    _LOGGER.warning("Redirected to login. Re-authenticating...")
                     self._authenticated = False
                     return await self.get_account_info()
                 
-                contract_data = await resp.json()
-                # Берем первый контракт из списка
-                contract = contract_data[0] if isinstance(contract_data, list) else contract_data
-                contract_id = contract.get("contract_id")
-                contract_num = contract.get("contract_num", "N/A")
+                contracts = await resp.json()
+                contract = contracts[0] if contracts else {}
+                c_id = contract.get("contract_id")
+                c_num = contract.get("contract_num", "N/A")
 
-            # Шаг 2: Запрашиваем данные абонента (где обычно лежит баланс)
-            # Судя по скриншоту, путь выглядит как /api/user/subscriber/ID
-            sub_url = f"{self.base_url}/api/user/subscriber/{contract_id}"
-            _LOGGER.debug("Fetching subscriber info from: %s", sub_url)
-            
-            async with self.session.get(sub_url, headers=headers, timeout=20) as resp:
-                if resp.status != 200:
-                    _LOGGER.error("Failed to fetch subscriber data: %s", resp.status)
-                    return {
-                        "balance": 0.0,
-                        "customer_number": contract_num,
-                        "bonus_balance": 0.0,
-                    }
+            # ШАГ 2: Получаем ID абонента (subscriber_id)
+            # Видим на скриншоте 00.21.29.jpg, что это возвращает список объектов
+            async with self.session.get(f"{self.base_url}/api/user/subscriber/{c_id}", headers=headers) as resp:
+                subscribers = await resp.json()
+                # Берем subscriber_id из первого элемента
+                s_id = subscribers[0].get("subscriber_id") if subscribers else None
+
+            if not s_id:
+                _LOGGER.error("Could not find subscriber_id")
+                return {"balance": 0.0, "customer_number": c_num}
+
+            # ШАГ 3: Получаем финансовые данные из product
+            # На скриншотах 23.30.42.jpg и 23.30.44.jpg видно, что баланс ищется здесь
+            product_url = f"{self.base_url}/api/user/product/{s_id}"
+            async with self.session.get(product_url, headers=headers) as resp:
+                products = await resp.json()
+                _LOGGER.info("Product data (financials): %s", products)
                 
-                sub_data = await resp.json()
-                _LOGGER.info("Subscriber data received: %s", sub_data)
+                # Ищем баланс. В разных API он может быть в корне или в первом продукте
+                main_product = products[0] if isinstance(products, list) and products else products
                 
-                # Если приходит список, берем первый элемент
-                info = sub_data[0] if isinstance(sub_data, list) else sub_data
+                # Проверяем разные варианты именования полей
+                balance = main_product.get("balance") or main_product.get("account_balance", 0.0)
+                bonus = main_product.get("bonus_balance") or main_product.get("bonusBalance", 0.0)
 
                 return {
-                    "balance": float(info.get("balance", 0.0)),
-                    "customer_number": str(contract_num),
-                    "bonus_balance": float(info.get("bonus_balance", info.get("bonusBalance", 0.0))),
-                    "ip_addresses": [],
+                    "balance": float(balance),
+                    "customer_number": str(c_num),
+                    "bonus_balance": float(bonus),
+                    "subscriber_id": s_id
                 }
 
         except Exception as ex:
-            _LOGGER.error("Data fetch error: %s", ex)
+            _LOGGER.error("Error during data sequence: %s", ex)
             raise
