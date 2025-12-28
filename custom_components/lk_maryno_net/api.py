@@ -39,76 +39,85 @@ class MarynoNetApiClient:
         self.session = aiohttp.ClientSession(connector=connector)
 
     def _get_headers(self) -> Dict[str, str]:
-        """Формирование заголовков с актуальным XSRF токеном."""
+        """Формирование заголовков."""
         headers = {
             "accept": "application/json, text/plain, */*",
-            "content-type": "application/json",
             "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "origin": self.base_url,
             "referer": f"{self.base_url}/",
         }
 
-        if self.session:
-            for cookie in self.session.cookie_jar:
-                if cookie.key == 'XSRF-TOKEN':
-                    # Важно: декодируем токен (убираем %3D и прочее)
-                    headers['x-xsrf-token'] = urllib.parse.unquote(cookie.value)
-                    break
+        # Вытаскиваем токен максимально аккуратно
+        token = None
+        for cookie in self.session.cookie_jar:
+            if cookie.key.upper() == 'XSRF-TOKEN':
+                token = urllib.parse.unquote(cookie.value)
+                break
+        
+        if token:
+            headers['x-xsrf-token'] = token
         return headers
 
     async def authenticate(self) -> None:
-        """Процесс авторизации с предварительным получением токена."""
+        """Авторизация с принудительной очисткой старых сессий."""
         await self._create_session()
+        self.session.cookie_jar.clear() # Начинаем с чистого листа
         
         try:
-            # 1. Заходим на страницу логина для получения начальных кук
-            async with self.session.get(f"{self.base_url}/login/", timeout=10) as resp:
+            # 1. Сначала просто получаем базовые куки
+            async with self.session.get(f"{self.base_url}/login/") as resp:
                 await resp.text()
 
-            # 2. Отправляем учетные данные
+            # 2. Логин
             login_data = {"username": self.username, "password": self.password}
-            headers = self._get_headers()
-            
-            _LOGGER.info("Authenticating user %s...", self.username)
+            # ВАЖНО: при логине отправляем токен, который получили на шаге 1
             async with self.session.post(
                 f"{self.base_url}/auth", 
                 json=login_data, 
-                headers=headers, 
-                timeout=20
+                headers=self._get_headers()
             ) as resp:
-                if resp.status not in [200, 201, 204, 304]:
-                    text = await resp.text()
-                    raise Exception(f"Login failed ({resp.status}): {text}")
+                if resp.status not in [200, 304]:
+                    raise Exception(f"Auth failed: {resp.status}")
                 
-                # Даем сессии время обновить куки (токен меняется после логина)
-                await asyncio.sleep(0.5)
+                # ЧИТ: Извлекаем новый токен напрямую из заголовков ответа, 
+                # не дожидаясь, пока aiohttp его переварит
+                set_cookie = resp.headers.getall('Set-Cookie', [])
+                for cookie_str in set_cookie:
+                    if 'XSRF-TOKEN=' in cookie_str:
+                        new_token = cookie_str.split('XSRF-TOKEN=')[1].split(';')[0]
+                        # Принудительно обновляем в jar
+                        self.session.cookie_jar.update_cookies(
+                            {'XSRF-TOKEN': new_token}, 
+                            URL(self.base_url)
+                        )
                 
+                await asyncio.sleep(1) # Ждем секунду для надежности
                 self._authenticated = True
-                self._auth_attempts = 0
-                _LOGGER.info("Successfully authenticated")
+                _LOGGER.info("Successfully authenticated. Token updated manually.")
 
         except Exception as ex:
             _LOGGER.error("Authentication error: %s", ex)
-            self._authenticated = False
             raise
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Получение данных по цепочке: Contract -> Subscriber -> Product."""
         if not self._authenticated:
             await self.authenticate()
 
         try:
-            # ШАГ 1: Получаем Contract ID
             async with self.session.get(
                 f"{self.base_url}/api/user/contract", 
                 headers=self._get_headers(),
-                timeout=20
+                allow_redirects=False # ЗАПРЕЩАЕМ редирект на /login/
             ) as resp:
-                # Если получили HTML вместо JSON - сессия слетела
-                if "text/html" in resp.headers.get("Content-Type", ""):
-                    _LOGGER.warning("Session lost (HTML received). Retrying...")
+                # Если вместо 200 получили 302 (редирект), значит сессия не сработала
+                if resp.status in [301, 302]:
+                    _LOGGER.error("Server tried to redirect to login. Session invalid.")
                     self._authenticated = False
-                    return await self.get_account_info()
+                    raise Exception("Session failed right after auth")
+
+                if "text/html" in resp.headers.get("Content-Type", ""):
+                    # Это то самое место, где мы падали
+                    raise Exception("Received HTML instead of JSON. Auth sequence is broken.")
 
                 contracts = await resp.json()
                 if not contracts:
