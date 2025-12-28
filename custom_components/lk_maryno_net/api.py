@@ -36,23 +36,6 @@ class MarynoNetApiClient:
         # CookieJar автоматически сохраняет XSRF-TOKEN и connect.sid
         self.session = aiohttp.ClientSession(connector=connector)
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Формирование заголовков с актуальным XSRF токеном."""
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Origin": self.base_url,
-            "Referer": f"{self.base_url}/login/",
-        }
-
-        if self.session:
-            for cookie in self.session.cookie_jar:
-                if cookie.key == 'XSRF-TOKEN':
-                    # Важно: токен из куки нужно декодировать перед отправкой в заголовке
-                    headers['X-Xsrf-Token'] = urllib.parse.unquote(cookie.value)
-                    break
-        return headers
-
     async def authenticate(self) -> None:
         """Процесс авторизации."""
         await self._create_session()
@@ -82,62 +65,76 @@ class MarynoNetApiClient:
             _LOGGER.error("Authentication error: %s", ex)
             self._authenticated = False
             raise
+    
+    def _get_headers(self) -> Dict[str, str]:
+        """Формирование заголовков с актуальным XSRF-токеном из кук."""
+        headers = {
+            "accept": "application/json, text/plain, */*",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "origin": self.base_url,
+            "referer": f"{self.base_url}/", # Попробуйте также f"{self.base_url}/login/" если не сработает
+        }
+
+        if self.session:
+            for cookie in self.session.cookie_jar:
+                if cookie.key == 'XSRF-TOKEN':
+                    # Токен в заголовке должен быть декодирован (без %3D и т.д.)
+                    headers['x-xsrf-token'] = urllib.parse.unquote(cookie.value)
+                    break
+        return headers
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """Последовательное получение данных: contract -> subscriber -> product."""
+        """Цепочка запросов: Contract -> Subscriber -> Product."""
         if not self._authenticated:
             await self.authenticate()
 
-        headers = self._get_headers()
-        # Важно для API
-        headers["accept"] = "application/json, text/plain, */*"
-        headers["referer"] = f"{self.base_url}/"
-
         try:
-            # ШАГ 1: Получаем ID контракта
-            async with self.session.get(f"{self.base_url}/api/user/contract", headers=headers) as resp:
+            # 1. Получаем ID контракта
+            # На скриншоте 00.19.24.jpg видно, что этот запрос возвращает массив с contract_id
+            async with self.session.get(
+                f"{self.base_url}/api/user/contract", 
+                headers=self._get_headers()
+            ) as resp:
                 if "text/html" in resp.headers.get("Content-Type", ""):
-                    _LOGGER.warning("Redirected to login. Re-authenticating...")
+                    _LOGGER.warning("Session lost, re-authenticating...")
                     self._authenticated = False
+                    await self.authenticate()
                     return await self.get_account_info()
-                
+
                 contracts = await resp.json()
-                contract = contracts[0] if contracts else {}
+                _LOGGER.debug("Contracts: %s", contracts)
+                contract = contracts[0] if isinstance(contracts, list) else contracts
                 c_id = contract.get("contract_id")
-                c_num = contract.get("contract_num", "N/A")
+                c_num = contract.get("contract_num")
 
-            # ШАГ 2: Получаем ID абонента (subscriber_id)
-            # Видим на скриншоте 00.21.29.jpg, что это возвращает список объектов
-            async with self.session.get(f"{self.base_url}/api/user/subscriber/{c_id}", headers=headers) as resp:
-                subscribers = await resp.json()
-                # Берем subscriber_id из первого элемента
-                s_id = subscribers[0].get("subscriber_id") if subscribers else None
+            # 2. Получаем ID абонента (subscriber_id)
+            # На скриншоте 00.21.29.jpg видно, что запрос к /subscriber/{c_id} возвращает subscriber_id
+            async with self.session.get(
+                f"{self.base_url}/api/user/subscriber/{c_id}", 
+                headers=self._get_headers()
+            ) as resp:
+                subs = await resp.json()
+                sub = subs[0] if isinstance(subs, list) else subs
+                s_id = sub.get("subscriber_id")
 
-            if not s_id:
-                _LOGGER.error("Could not find subscriber_id")
-                return {"balance": 0.0, "customer_number": c_num}
-
-            # ШАГ 3: Получаем финансовые данные из product
-            # На скриншотах 23.30.42.jpg и 23.30.44.jpg видно, что баланс ищется здесь
-            product_url = f"{self.base_url}/api/user/product/{s_id}"
-            async with self.session.get(product_url, headers=headers) as resp:
+            # 3. Получаем баланс из product
+            # На скриншотах 23.30.42.jpg и 23.30.44.jpg видно, что финансовые данные здесь
+            async with self.session.get(
+                f"{self.base_url}/api/user/product/{s_id}", 
+                headers=self._get_headers()
+            ) as resp:
                 products = await resp.json()
-                _LOGGER.info("Product data (financials): %s", products)
+                _LOGGER.info("Product data received: %s", products)
                 
-                # Ищем баланс. В разных API он может быть в корне или в первом продукте
-                main_product = products[0] if isinstance(products, list) and products else products
+                product = products[0] if isinstance(products, list) else products
                 
-                # Проверяем разные варианты именования полей
-                balance = main_product.get("balance") or main_product.get("account_balance", 0.0)
-                bonus = main_product.get("bonus_balance") or main_product.get("bonusBalance", 0.0)
-
+                # Извлекаем баланс (названия полей сверены со скриншотами)
                 return {
-                    "balance": float(balance),
+                    "balance": float(product.get("balance", 0.0)),
                     "customer_number": str(c_num),
-                    "bonus_balance": float(bonus),
-                    "subscriber_id": s_id
+                    "bonus_balance": float(product.get("bonus_balance", 0.0)),
                 }
 
         except Exception as ex:
-            _LOGGER.error("Error during data sequence: %s", ex)
+            _LOGGER.error("Data sequence failed: %s", ex)
             raise
