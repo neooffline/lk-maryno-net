@@ -1,7 +1,7 @@
 """Constants for LK Марьино.net integration."""
 DOMAIN = "lk_maryno_net"
 PLATFORMS = ["sensor"]
-SCAN_INTERVAL = 300  # 5 minutes
+SCAN_INTERVAL = 900  # 15 minutes
 
 BASE_URL = "https://lk.maryno.net"
 AUTH_URL = f"{BASE_URL}/auth"
