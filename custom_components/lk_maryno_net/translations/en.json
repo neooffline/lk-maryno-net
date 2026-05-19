@@ -5,11 +5,13 @@
         "data": {
           "username": "Username",
           "password": "Password",
+          "scan_interval": "Update interval (sec)",
           "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
           "username": "Your Maryno.net username",
           "password": "Your Maryno.net password",
+          "scan_interval": "How often to refresh sensor data (60–3600 sec, default 300)",
           "verify_ssl": "Verify SSL certificate (disable if you have certificate issues)"
         }
       }
@@ -19,6 +21,18 @@
     },
     "abort": {
       "already_configured": "Account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Update interval (sec)"
+        },
+        "data_description": {
+          "scan_interval": "How often to refresh sensor data (60–3600 sec, default 300)"
+        }
+      }
     }
   }
 }

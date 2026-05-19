@@ -5,12 +5,11 @@ from typing import Any, Dict, Optional
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import HomeAssistantError
 
 from .api import MarynoNetApiClient
-from .const import DOMAIN
+from .const import DOMAIN, SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,7 +17,18 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("username"): str,
         vol.Required("password"): str,
+        vol.Optional("scan_interval", default=SCAN_INTERVAL): vol.All(
+            vol.Coerce(int), vol.Range(min=60, max=3600)
+        ),
         vol.Optional("verify_ssl", default=True): bool,
+    }
+)
+
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required("scan_interval"): vol.All(
+            vol.Coerce(int), vol.Range(min=60, max=3600)
+        ),
     }
 )
 
@@ -32,7 +42,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
         """Handle the initial step."""
-        errors = {}
+        errors: Dict[str, str] = {}
 
         if user_input is not None:
             api_client = MarynoNetApiClient(
@@ -51,7 +61,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 return self.async_create_entry(
-                    title="LK Марьино.net",
+                    title=f"LK Марьино.net ({user_input['username']})",
                     data=user_input,
                 )
 
@@ -62,9 +72,38 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for LK Марьино.net."""
+
+    async def async_step_init(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Manage options."""
+        if user_input is not None:
+            result = self.async_create_entry(title="", data=user_input)
+            # Update config_entry data and reload
+            new_data = {**self.config_entry.data, **user_input}
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=new_data
+            )
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            )
+            return result
+
+        current = self.config_entry.data.get("scan_interval", SCAN_INTERVAL)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA, {"scan_interval": current}
+            ),
+        )
 
 
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""
+@staticmethod
+@callback
+def async_get_options_flow(
+    config_entry: config_entries.ConfigEntry,
+) -> OptionsFlowHandler:
+    """Get the options flow for this handler."""
+    return OptionsFlowHandler()

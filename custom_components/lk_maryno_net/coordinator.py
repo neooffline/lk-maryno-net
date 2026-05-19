@@ -14,13 +14,18 @@ _LOGGER = logging.getLogger(__name__)
 class MarynoNetDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from Maryno.net."""
 
-    def __init__(self, hass: HomeAssistant, api_client: MarynoNetApiClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: MarynoNetApiClient,
+        scan_interval: int = SCAN_INTERVAL,
+    ) -> None:
         """Initialize."""
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.api_client = api_client
 
