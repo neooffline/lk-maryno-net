@@ -1,116 +1,100 @@
-# lk-marino-net
-Home Assistant Integration for Marino.net
+# LK Марьино.net
 
-This integration allows you to monitor your Marino.net account information in Home Assistant, including:
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![GitHub Release](https://img.shields.io/github/v/release/neooffline/lk-maryno-net)](https://github.com/neooffline/lk-maryno-net/releases)
 
-- Account balance
-- Customer number
-- IP addresses
-- Bonus balance
+Интеграция Home Assistant для мониторинга личного кабинета Марьино.net.
 
-## Installation
+![Скриншот устройства и сенсоров](docs/images/device_sensors.png)
 
-### HACS (recommended)
+## Возможности
 
-1. Add this repository to HACS as a custom repository
-2. Search for "LK MARINO.net" in HACS
-3. Install the integration
-4. Restart Home Assistant
+- Баланс счёта
+- Бонусный баланс
+- Количество и статус G-Бонусов
+- Оставшиеся дни G-Бонусов
+- Текущий тариф и его стоимость
+- Скорость подключения
+- Статус аккаунта
 
-### Manual
+## Установка
 
-1. Copy the `custom_components/lk_marino_net` folder to your Home Assistant `custom_components` directory
-2. Restart Home Assistant
+### Через HACS (рекомендуется)
 
-## Configuration
+1. Откройте **HACS** → **Интеграции**
+2. Нажмите **⋮** → **Пользовательские репозитории**
+3. Добавьте `https://github.com/neooffline/lk-maryno-net`, категория **Интеграция**
+4. Найдите **LK Марьино.net** и нажмите **Установить**
+5. Перезапустите Home Assistant
 
-1. Go to Settings > Devices & Services
-2. Click "Add Integration"
-3. Search for "LK MARINO.net"
-4. Enter your Marino.net username and password
-5. Optionally, disable SSL certificate verification if you encounter certificate issues
-6. Click "Submit"
+### Вручную
 
-### SSL Certificate Issues
+Скопируйте папку `custom_components/lk_maryno_net` в директорию `custom_components` вашего Home Assistant и перезапустите.
 
-If you encounter SSL certificate verification errors, you can disable SSL verification in the configuration. This is common with some ISP portals that use self-signed or incorrectly configured certificates. Note that disabling SSL verification reduces security, so only do this if necessary.
+## Настройка
 
-## Testing the Integration
+1. Перейдите в **Настройки** → **Устройства и службы**
+2. Нажмите **+ Добавить интеграцию**
+3. Найдите **LK Марьино.net**
+4. Введите данные:
 
-Before installing in Home Assistant, you can test the API client:
+| Параметр | Описание |
+|---|---|
+| **Имя пользователя** | Номер договора (например, `69292`) |
+| **Пароль** | Пароль от личного кабинета |
+| **Интервал обновления** | Частота опроса в секундах (60–3600, по умолчанию 300) |
+| **Проверять SSL** | Оставьте включённым, отключите только при проблемах с сертификатом |
 
-1. Install dependencies: `pip install aiohttp`
-2. Edit `standalone_debug.py` and replace `your_contract_number` and `your_password` with your actual credentials
-3. Uncomment the last line: `success = asyncio.run(debug_auth())`
-4. Run: `python standalone_debug.py`
+![Настройка интеграции](docs/images/config_flow.png)
 
-This will show detailed debug information about the authentication process and API access.
+После настройки интервал можно изменить через **⚙️ Настроить** → **Интервал обновления**.
 
-## Sensors
+## Сенсоры
 
-The integration provides the following sensors:
+| Сенсор | Описание | Единица |
+|---|---|---|
+| **Balance** | Текущий баланс счёта | ₽ |
+| **Bonus Balance** | Бонусный баланс | ₽ |
+| **Customer Number** | Номер договора | — |
+| **G-Bonus Count** | Количество G-Бонусов | шт |
+| **G-Bonus Days Left** | Осталось дней G-Бонусов | дн |
+| **G-Bonus Status** | Статус G-Бонус (Платиновый и т.д.) | — |
+| **Plan** | Название тарифа | — |
+| **Plan Cost** | Стоимость тарифа | ₽ |
+| **Plan Speed** | Скорость подключения | Kbit/s |
+| **Status** | Статус аккаунта | — |
+| **IP Addresses** | Назначенные IP-адреса | — |
 
-- **Balance**: Your current account balance in RUB
-- **Customer Number**: Your customer account number
-- **IP Addresses**: Comma-separated list of your assigned IP addresses
-- **Bonus Balance**: Your bonus account balance in RUB
+![Список сенсоров](docs/images/device_sensors.png)
 
-### Authentication Method
+## Несколько аккаунтов
 
-The integration uses JSON-based authentication:
+Можно добавить несколько интеграций для разных договоров. Каждая будет отображаться как отдельное устройство с уникальным именем `LK Марьино.net (<номер договора>)`.
 
-1. **Auth Request**: POST to `/auth` with JSON payload:
-   ```json
-   {
-     "username": "your_contract_number",
-     "password": "your_password"
-   }
-   ```
-2. **Session Cookies**: Obtains `connect.sid`, `XSRF-TOKEN`, and other session cookies
-3. **API Access**: Uses session cookies for subsequent API calls
-4. **CSRF Protection**: Includes `X-XSRF-TOKEN` header when available
+## Устранение неполадок
 
-**Note**: The username is typically your contract number (e.g., "69292"), not your login email.
+### Ошибка авторизации
 
-### API Endpoints Used
+- Убедитесь, что **имя пользователя** — это номер договора, а не email
+- Проверьте пароль в личном кабинете на сайте
+- Включите **debug-логирование** для `custom_components.lk_maryno_net` в `configuration.yaml`:
 
-The integration uses the following Maryno.net API endpoints:
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.lk_maryno_net: debug
+```
 
-- **User Info**: `https://lk.maryno.net/api/user/all` - Contains balance, customer number, and account details
-- **IP Addresses**: `https://lk.maryno.net/api/accounts` - Lists all assigned IP addresses
-- **Bonus Info**: `https://lk.maryno.net/api/gbonus/info` - Bonus program information and balance
+### Проблемы с SSL
 
-## Troubleshooting
+Если портал использует самоподписанный сертификат, отключите проверку SSL в настройках интеграции.
 
-### SSL Certificate Issues
+### Сенсоры не обновляются
 
-If you encounter SSL certificate verification errors, try:
-1. Disabling SSL verification in the integration configuration
-2. Checking if your Marino.net portal uses a different domain
+- Проверьте **Настройки** → **Устройства и службы** → **LK Марьино.net** → **Диагностика**
+- Увеличьте интервал обновления, если получаете слишком частые запросы
 
-### Connection Issues
+## Лицензия
 
-The integration automatically tries multiple possible URLs for the Maryno.net customer portal:
-- `https://lk.marino.net`
-- `https://www.marino.net`
-- `https://marino.net`
-- `https://lk.marinonet.ru`
-- `https://marinonet.ru`
-- `https://my.marino.net`
-
-If none of these work, you may need to inspect the actual login URL used by your ISP.
-
-### Debug Logging
-
-To enable detailed logging for troubleshooting:
-
-1. Go to Settings > System > Logs
-2. Set log level for `custom_components.lk_marino_net` to `debug`
-3. Restart Home Assistant
-4. Check the logs after attempting to configure the integration
-
-This will show detailed information about:
-- Which URLs are being tested
-- SSL certificate issues
-- API responses
-- Authentication attempts
+MIT
