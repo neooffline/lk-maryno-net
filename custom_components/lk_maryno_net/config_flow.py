@@ -35,20 +35,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            api_client = MarynoNetApiClient(
+                username=user_input["username"],
+                password=user_input["password"],
+                verify_ssl=user_input.get("verify_ssl", True),
+            )
             try:
-                # Test the credentials
-                api_client = MarynoNetApiClient(
-                    username=user_input["username"],
-                    password=user_input["password"],
-                    verify_ssl=user_input.get("verify_ssl", True),
-                )
                 await api_client.authenticate()
                 await api_client.get_account_info()
-
             except Exception as ex:
                 _LOGGER.error("Authentication failed: %s", ex)
                 errors["base"] = "invalid_auth"
-            else:
+            finally:
+                await api_client.close()
+
+            if not errors:
                 return self.async_create_entry(
                     title="LK Марьино.net",
                     data=user_input,
