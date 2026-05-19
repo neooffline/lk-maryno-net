@@ -1,7 +1,7 @@
 {
   "domain": "lk_maryno_net",
   "name": "LK Марьино.net",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "iot_class": "cloud_polling",
   "config_flow": true,
   "documentation": "https://github.com/neooffline/lk-maryno-net",
