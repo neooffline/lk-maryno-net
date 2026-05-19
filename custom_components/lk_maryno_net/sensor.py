@@ -7,7 +7,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -35,19 +35,20 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
+    entry_id = entry.entry_id
 
     entities = [
-        MarynoNetBalanceSensor(coordinator),
-        MarynoNetCustomerNumberSensor(coordinator),
-        MarynoNetBonusBalanceSensor(coordinator),
-        MarynoNetIpAddressesSensor(coordinator),
-        MarynoNetPlanSensor(coordinator),
-        MarynoNetPlanCostSensor(coordinator),
-        MarynoNetPlanSpeedSensor(coordinator),
-        MarynoNetStatusSensor(coordinator),
-        MarynoNetGbonusCountSensor(coordinator),
-        MarynoNetGbonusDaysLeftSensor(coordinator),
-        MarynoNetGbonusStatusSensor(coordinator),
+        MarynoNetBalanceSensor(coordinator, entry_id),
+        MarynoNetCustomerNumberSensor(coordinator, entry_id),
+        MarynoNetBonusBalanceSensor(coordinator, entry_id),
+        MarynoNetIpAddressesSensor(coordinator, entry_id),
+        MarynoNetPlanSensor(coordinator, entry_id),
+        MarynoNetPlanCostSensor(coordinator, entry_id),
+        MarynoNetPlanSpeedSensor(coordinator, entry_id),
+        MarynoNetStatusSensor(coordinator, entry_id),
+        MarynoNetGbonusCountSensor(coordinator, entry_id),
+        MarynoNetGbonusDaysLeftSensor(coordinator, entry_id),
+        MarynoNetGbonusStatusSensor(coordinator, entry_id),
     ]
 
     async_add_entities(entities)
@@ -56,12 +57,22 @@ async def async_setup_entry(
 class MarynoNetSensor(CoordinatorEntity, SensorEntity):
     """Base sensor for Maryno.net."""
 
-    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator) -> None:
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: MarynoNetDataUpdateCoordinator,
+        entry_id: str,
+        sensor_key: str,
+        name: str,
+    ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{sensor_key}"
+        self._attr_name = name
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.config_entry.entry_id)},
-            "name": "LK Марьино.net",
+            "identifiers": {(DOMAIN, entry_id)},
+            "name": f"LK Марьино.net ({coordinator.api_client.username})",
             "manufacturer": "Марьино.net",
             "model": "Customer Portal",
         }
@@ -70,11 +81,12 @@ class MarynoNetSensor(CoordinatorEntity, SensorEntity):
 class MarynoNetBalanceSensor(MarynoNetSensor):
     """Balance sensor."""
 
-    _attr_name = "Balance"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_BALANCE}"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "RUB"
+
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_BALANCE, "Balance")
 
     @property
     def native_value(self) -> float:
@@ -84,8 +96,8 @@ class MarynoNetBalanceSensor(MarynoNetSensor):
 class MarynoNetCustomerNumberSensor(MarynoNetSensor):
     """Customer number sensor."""
 
-    _attr_name = "Customer Number"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_CUSTOMER_NUMBER}"
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_CUSTOMER_NUMBER, "Customer Number")
 
     @property
     def native_value(self) -> str:
@@ -95,11 +107,12 @@ class MarynoNetCustomerNumberSensor(MarynoNetSensor):
 class MarynoNetBonusBalanceSensor(MarynoNetSensor):
     """Bonus balance sensor."""
 
-    _attr_name = "Bonus Balance"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_BONUS_BALANCE}"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "RUB"
+
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_BONUS_BALANCE, "Bonus Balance")
 
     @property
     def native_value(self) -> float:
@@ -109,8 +122,8 @@ class MarynoNetBonusBalanceSensor(MarynoNetSensor):
 class MarynoNetIpAddressesSensor(MarynoNetSensor):
     """IP addresses sensor."""
 
-    _attr_name = "IP Addresses"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_IP_ADDRESSES}"
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_IP_ADDRESSES, "IP Addresses")
 
     @property
     def native_value(self) -> str:
@@ -127,8 +140,8 @@ class MarynoNetIpAddressesSensor(MarynoNetSensor):
 class MarynoNetPlanSensor(MarynoNetSensor):
     """Current plan/tariff sensor."""
 
-    _attr_name = "Plan"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_PLAN}"
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_PLAN, "Plan")
 
     @property
     def native_value(self) -> str:
@@ -138,11 +151,12 @@ class MarynoNetPlanSensor(MarynoNetSensor):
 class MarynoNetPlanCostSensor(MarynoNetSensor):
     """Plan cost sensor."""
 
-    _attr_name = "Plan Cost"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_PLAN_COST}"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "RUB"
+
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_PLAN_COST, "Plan Cost")
 
     @property
     def native_value(self) -> float:
@@ -152,23 +166,22 @@ class MarynoNetPlanCostSensor(MarynoNetSensor):
 class MarynoNetPlanSpeedSensor(MarynoNetSensor):
     """Plan speed sensor."""
 
-    _attr_name = "Plan Speed"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_PLAN_SPEED}"
     _attr_native_unit_of_measurement = "Kbit/s"
+
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_PLAN_SPEED, "Plan Speed")
 
     @property
     def native_value(self) -> str:
         speed = self.coordinator.data.get("plan_speed", "")
-        if speed:
-            return str(speed)
-        return ""
+        return str(speed) if speed else ""
 
 
 class MarynoNetStatusSensor(MarynoNetSensor):
     """Account status sensor."""
 
-    _attr_name = "Status"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_STATUS}"
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_STATUS, "Status")
 
     @property
     def native_value(self) -> str:
@@ -178,9 +191,10 @@ class MarynoNetStatusSensor(MarynoNetSensor):
 class MarynoNetGbonusCountSensor(MarynoNetSensor):
     """G-Bonus count sensor."""
 
-    _attr_name = "G-Bonus Count"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_GONUS_COUNT}"
     _attr_state_class = SensorStateClass.TOTAL
+
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_GONUS_COUNT, "G-Bonus Count")
 
     @property
     def native_value(self) -> int:
@@ -190,10 +204,11 @@ class MarynoNetGbonusCountSensor(MarynoNetSensor):
 class MarynoNetGbonusDaysLeftSensor(MarynoNetSensor):
     """G-Bonus days left sensor."""
 
-    _attr_name = "G-Bonus Days Left"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_GONUS_DAYS_LEFT}"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "d"
+
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_GONUS_DAYS_LEFT, "G-Bonus Days Left")
 
     @property
     def native_value(self) -> int:
@@ -203,8 +218,8 @@ class MarynoNetGbonusDaysLeftSensor(MarynoNetSensor):
 class MarynoNetGbonusStatusSensor(MarynoNetSensor):
     """G-Bonus status sensor."""
 
-    _attr_name = "G-Bonus Status"
-    _attr_unique_id = f"{DOMAIN}_{SENSOR_GONUS_STATUS}"
+    def __init__(self, coordinator: MarynoNetDataUpdateCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, SENSOR_GONUS_STATUS, "G-Bonus Status")
 
     @property
     def native_value(self) -> str:
