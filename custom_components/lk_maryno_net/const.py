@@ -3,22 +3,18 @@ DOMAIN = "lk_maryno_net"
 PLATFORMS = ["sensor"]
 SCAN_INTERVAL = 300  # 5 minutes
 
-# API endpoints (these may need to be updated based on actual API)
-# Try different possible URLs for maryno.net customer portal
-POSSIBLE_BASE_URLS = [
-    "https://lk.maryno.net",
-    "https://www.maryno.net",
-    "https://maryno.net",
-    "https://lk.marynunet.ru",  # Alternative domain
-    "https://marynunet.ru",
-    "https://my.maryno.net",   # Common pattern
-]
-BASE_URL = "https://lk.maryno.net"  # Default fallback - confirmed working
-AUTH_URL = f"{BASE_URL}/auth"  # Authentication endpoint
-ACCOUNT_URL = f"{BASE_URL}/api/user/all"  # Updated to correct endpoint that returns all user data including balance
+BASE_URL = "https://lk.maryno.net"
+AUTH_URL = f"{BASE_URL}/auth"
+ACCOUNT_URL = f"{BASE_URL}/api/user/all"
 
-# Sensor types
 SENSOR_BALANCE = "balance"
 SENSOR_CUSTOMER_NUMBER = "customer_number"
 SENSOR_IP_ADDRESSES = "ip_addresses"
 SENSOR_BONUS_BALANCE = "bonus_balance"
+SENSOR_PLAN = "plan"
+SENSOR_PLAN_COST = "plan_cost"
+SENSOR_PLAN_SPEED = "plan_speed"
+SENSOR_STATUS = "status"
+SENSOR_GONUS_COUNT = "gbonus_count"
+SENSOR_GONUS_DAYS_LEFT = "gbonus_days_left"
+SENSOR_GONUS_STATUS = "gbonus_status"

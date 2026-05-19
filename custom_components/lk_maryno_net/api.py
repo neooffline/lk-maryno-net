@@ -142,6 +142,9 @@ class MarynoNetApiClient:
             user_all = await self._get_json(f"{self.base_url}/api/user/all")
             _LOGGER.debug("User all data: %s", user_all)
 
+            gbonus_info = await self._get_json(f"{self.base_url}/api/gbonus/info")
+            _LOGGER.debug("G-Bonus info: %s", gbonus_info)
+
             return {
                 "balance": float(user_all.get("balance", 0.0)),
                 "customer_number": str(contract_num),
@@ -151,7 +154,12 @@ class MarynoNetApiClient:
                 "address": user_all.get("address", ""),
                 "plan": user_all.get("plan", ""),
                 "plan_cost": user_all.get("plan_cost", 0),
+                "plan_speed": user_all.get("plan_speed", ""),
                 "status": user_all.get("status", ""),
+                "gbonus_count": gbonus_info.get("n_bonus", 0),
+                "gbonus_days_left": gbonus_info.get("days_left", 0),
+                "gbonus_status": gbonus_info.get("pvt_status_name", ""),
+                "gbonus_sum_pays": gbonus_info.get("sum_pays", 0),
             }
 
         except Exception as ex:
