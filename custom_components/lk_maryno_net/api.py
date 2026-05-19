@@ -145,11 +145,15 @@ class MarynoNetApiClient:
             gbonus_info = await self._get_json(f"{self.base_url}/api/gbonus/info")
             _LOGGER.debug("G-Bonus info: %s", gbonus_info)
 
+            accounts = await self._get_json(f"{self.base_url}/api/accounts")
+            ip_addresses = [acc["ip_address"] for acc in accounts] if accounts else []
+            _LOGGER.debug("IP addresses: %s", ip_addresses)
+
             return {
                 "balance": float(user_all.get("balance", 0.0)),
                 "customer_number": str(contract_num),
                 "bonus_balance": float(user_all.get("bonusBalance", 0.0)),
-                "ip_addresses": [],
+                "ip_addresses": ip_addresses,
                 "fio": user_all.get("fio", ""),
                 "address": user_all.get("address", ""),
                 "plan": user_all.get("plan", ""),
