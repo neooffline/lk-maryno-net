@@ -150,9 +150,9 @@ class MarynoNetApiClient:
             _LOGGER.debug("IP addresses: %s", ip_addresses)
 
             return {
-                "balance": float(user_all.get("balance", 0.0)),
+                "balance": round(float(user_all.get("balance", 0.0)), 2),
                 "customer_number": str(contract_num),
-                "bonus_balance": float(user_all.get("bonusBalance", 0.0)),
+                "bonus_balance": round(float(user_all.get("bonusBalance", 0.0)), 2),
                 "ip_addresses": ip_addresses,
                 "fio": user_all.get("fio", ""),
                 "address": user_all.get("address", ""),
